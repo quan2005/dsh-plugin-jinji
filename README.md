@@ -52,4 +52,4 @@ npm run pack     # 预览发布包里会包含哪些文件
 
 ## 许可证
 
-[MIT](./LICENSE) © 2026 许汝全 (quan2005)
+[MIT](./LICENSE) © 2026 dsh-plugin-jinji contributors

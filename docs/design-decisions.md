@@ -43,7 +43,7 @@
 ## ADR-0005：日志库根目录三级解析（config > env > cwd）
 
 - **状态**：已接受（2026-08）
-- **背景**：早期版本把个人路径 `/Users/yanwu/Documents/journal` 硬编码在包内，无法公开发布。
+- **背景**：早期版本把某台机器上的个人路径（形如 `/Users/<用户名>/Documents/journal`）硬编码在包内，无法公开发布。
 - **决策**：`config.root` > `DSH_JINJI_ROOT` > `process.cwd()` 三级解析；包内不带任何机器专属路径。
 - **理由**：包保持通用可发布；个人部署通过 profile 的 patch 层覆盖（id 定位替换整行 config）。
 - **风险**：cwd 兜底在无 `.journal` 的目录启动时返回 `no-journal`（面板显示加载失败，行为明确）。
