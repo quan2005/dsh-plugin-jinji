@@ -1,107 +1,109 @@
 # 架构设计
 
-> dsh-plugin-jinji 的系统架构、数据流与 DeepSeek Harness 集成点。阅读前提：了解 [DSH 官方架构](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.zh.md)（profile / bundle / patch 层、双半插件模型）。
+> 这个插件的整体结构、数据是怎么流动的，以及它用到了 DeepSeek Harness 的哪些官方接口。建议先知道两件事：DeepSeek Harness 的「配置文件分层」（profile → 组合包 → 补丁层）和「一个插件可以同时跑在服务端和浏览器里」这个基本模型（官方叫 dual-face 包）。
 
-## 1. 总体结构
+## 1. 一句话总览
 
-本项目是一个 **零构建、零运行时依赖** 的 DeepSeek Harness **双半插件包（bundle）**：
+本项目是一个 **不需要编译、不依赖任何第三方包** 的 DeepSeek Harness 插件。它由两个部分组成，分别跑在两个环境里：
 
 ```
 dsh-plugin-jinji/
-├── package.json          # dsh.bundle（组合包层）+ dsh.client（浏览器半声明）
-├── cordis.patch.yml      # 组合包层：插入双半行（一条行，双面）
+├── package.json          # 插件声明：告诉 DSH 这是一个带界面的插件
+├── cordis.patch.yml      # 安装时自动生效的配置（把插件挂进系统）
 ├── lib/
-│   ├── index.js          # Host 半（Node）：数据路由 + 文件读取
-│   └── client.js         # Client 半（浏览器）：入口按钮 + 面板（纯 DOM）
-└── docs/                 # 文档体系（本目录）
+│   ├── index.js          # 服务端部分（跑在 Node 里）：读文件、开接口
+│   └── client.js         # 浏览器部分（跑在网页里）：按钮 + 面板
+└── docs/                 # 文档（本目录）
 ```
 
-一条插件行 `jinji-memory` 在 Host 与浏览器两侧同时物化（`dsh.client` 双面包模型），与官方 `dsh-client-*` 包同构。
+所谓「两个部分」，是因为**浏览器碰不到磁盘，Node 碰不到页面**：
 
-## 2. 双半分工
+| 部分 | 文件 | 运行在 | 能做什么 |
+|---|---|---|---|
+| 服务端部分 | `lib/index.js` | dsh 的 Node 进程 | 读日志库文件、提供数据接口、做路径校验 |
+| 浏览器部分 | `lib/client.js` | 网页（http://127.0.0.1:3080） | 往侧栏插入按钮、渲染面板、处理点击 |
+
+两者之间只通过一个数据接口说话：浏览器部分发请求 → 服务端部分读文件 → 返回 JSON → 浏览器渲染。
+
+## 2. 数据是怎么流动的
 
 ```mermaid
 flowchart LR
-    subgraph Browser["浏览器（Client 半）"]
-        NAV["记忆按钮<br/>(DOM 注入 New Session 下方)"]
-        PANEL["记忆面板<br/>(纯 DOM 渲染，无 React)"]
-        FETCH["fetch('/api/jinji-memory')"]
+    subgraph Browser["浏览器（网页）"]
+        NAV["记忆按钮"]
+        PANEL["记忆面板"]
+        FETCH["向数据接口发请求"]
     end
-    subgraph Node["Node（Host 半）"]
-        ROUTE["webServer 路由<br/>GET /api/jinji-memory"]
-        FS["fs 服务<br/>(listDir/readText/contains)"]
+    subgraph Node["服务端（dsh 进程）"]
+        ROUTE["数据接口 /api/jinji-memory"]
+        FS["文件系统服务"]
         JOURNAL[".journal 日志库"]
     end
     NAV -->|点击| PANEL
-    PANEL --> FETCH -->|HTTP GET| ROUTE --> FS --> JOURNAL
-    FS -->|JSON| ROUTE --> FETCH -->|渲染| PANEL
+    PANEL --> FETCH -->|HTTP 请求| ROUTE --> FS --> JOURNAL
+    FS -->|JSON 数据| ROUTE --> FETCH -->|渲染| PANEL
 ```
 
-| 半 | 文件 | 职责 | 依赖 |
-|---|---|---|---|
-| Host | `lib/index.js` | 数据路由：解析 frontmatter、组装 index、读全文；路径防护 | `ctx.fs`、`ctx.webServer`（均注入声明） |
-| Client | `lib/client.js` | 侧栏按钮注入 + 全屏面板渲染 + 交互 | 仅浏览器原生 API（`document`/`fetch`/`MutationObserver`），**不 require 任何模块** |
+一步步说：
 
-## 3. 数据流
+1. **安装后启动**：服务端部分注册好数据接口；浏览器部分随页面加载，插入侧栏按钮。
+2. **点「记忆」**：面板立即出现（先显示"加载中"），同时向数据接口要一份索引。
+3. **服务端整理索引**：按时间倒序扫描 `.journal/memory/yyMM/*.md`（最多 120 条），再扫描 `.journal/identity/*.md`（本人 → 产品 → 其他人，按团队分组）；每条只取 frontmatter 里的 `summary` / `tags` / `sources` 和标题。
+4. **浏览器渲染**：所有内容先做 HTML 转义再放进页面（防止日志内容破坏页面），卡片上绑定点击事件。
+5. **点卡片看详情**：带着文件路径再向接口要全文，浏览器用一个小型排版器把 Markdown 变成排版好的 HTML。
 
-1. **激活**：bundle 层被 profile 应用 → Host 半注册路由 `/api/jinji-memory`；`dsh.client` 扫描器把 `./client` 导出加入浏览器模块表，页面加载时物化 Client 半。
-2. **打开**：用户点击「记忆」→ `openPanel()` → 面板立即挂载（占位渲染）→ `fetch /api/jinji-memory?action=index`。
-3. **索引**：Host 经 `fs.listDir` 枚举 `.journal/memory/yyMM/*.md`（倒序，截 120 条）与 `.journal/identity/*.md`（README 用户 → `product-*` 产品 → 人物，按区域分组），逐文件 `readText` 后解析 YAML frontmatter（`summary`/`tags`/`sources`）与首个 H1。
-4. **渲染**：Client 用 `esc()` 转义全部数据后以 innerHTML 模板渲染（防注入），事件经 `data-jm-act`/`data-jm-rel` 二次绑定。
-5. **详情**：点卡片 → `action=read&rel=…` → 全文返回 → 轻量 Markdown 渲染器输出 HTML。
+## 3. 用到了哪些官方接口
 
-## 4. DSH 集成点（seam 契约）
-
-| 集成点 | 使用方式 | 说明 |
+| 接口 | 怎么用 | 说明 |
 |---|---|---|
-| `ctx.fs`（服务） | `inject: ['fs']` | 抽象文件系统：`resolve`/`stat`/`listDir`/`readText`/`contains`。不直接 `node:fs`，尊重沙箱策略 |
-| `ctx.webServer`（服务） | `inject: ['webServer']` | `register({ kind: 'exact', path: '/api/jinji-memory', handler })`，返回 disposer 交给 `ctx.effect` |
-| `dsh.bundle` | `package.json` → `{ patch: './cordis.patch.yml' }` | 安装进 profile 时自动应用的组合包层 |
-| `dsh.client` | `package.json` → `{ platform: 'web', inject: [] }` | 浏览器模块表扫描声明；**必须为对象**（布尔值会让 client-modules 抛错） |
-| `window.__ModuleLoader__` | `lib/client.js` 手写 bundle | 零构建客户端分发格式（惰性 factory，`/plugins/<id>/client.js` 启动时固化） |
-| 槽位系统 | **不使用** | 面板与入口均绕过 slots（见 [ADR-0002](design-decisions.md#adr-0002)） |
+| `fs` 服务 | 声明依赖 `fs` | 官方抽象文件系统（读写都走它）。不用 Node 自带的文件 API，这样官方沙箱策略仍然生效 |
+| `webServer` 服务 | 声明依赖 `webServer` | 用它注册数据接口 `GET /api/jinji-memory`；返回的注销函数交给 `ctx.effect`，插件卸载时自动清理 |
+| `dsh.bundle` | `package.json` 里声明 | 告诉 DSH：这个包带一份配置，装进 profile 时自动应用 |
+| `dsh.client` | `package.json` 里声明 | 告诉 DSH：这个包还有浏览器部分（注意必须是对象写法，写错会让整个网页应用启动失败） |
+| `window.__ModuleLoader__` | `lib/client.js` 手写 | 官方浏览器模块的分发格式：网页在用到时才执行模块代码 |
+| 官方界面插槽（slots） | **不使用** | 本项目按钮和面板都绕开了官方插槽，原因见 [ADR-0001](design-decisions.md#adr-0001) |
 
-## 5. 关键机制
+## 4. 几个关键机制
 
-### 5.1 入口注入（侧栏「记忆」按钮）
+### 4.1 按钮是怎么放进侧栏的
 
-New Session 按钮是 shell 私有 DOM、无官方槽位。本插件在 Client 半启动时：
+「新会话」按钮是官方界面里没有对外开口的私有区域（没有官方插槽可用）。本插件的做法：
 
-1. `document.querySelector('[class*="_newSession"]')` 语义后缀定位锚点（hash 前缀随构建变、语义后缀稳定）；
-2. `insertAdjacentElement('afterend', btn)` 插入按钮；
-3. `getComputedStyle(anchor)` **逐属性拷贝内联样式**——几何、颜色、对齐完全跟随官方按钮（含主题变量），不硬编码色值；
-4. `MutationObserver` 监听子树与 class 变更：按钮被 shell 重建时自动重新挂接；宽/窄栏（rail ≤40px）状态跟随锚点实测宽度。
+1. 用一个稳定不变的类名后缀 `[class*="_newSession"]` 找到它（前面的随机前缀每次构建都会变，后缀不会）；
+2. 把「记忆」按钮插到它正下方；
+3. **复制它的实际样式**：读取这个按钮当前生效的全部样式，逐项套用到「记忆」按钮上——所以任何主题下两者都长得一样，不需要自己写颜色；
+4. 监听页面变化：按钮被官方界面重建时自动补回来；侧栏收起成窄栏（≤40px）时自动变成纯图标。
 
-### 5.2 面板定位
+### 4.2 面板为什么只盖住中间
 
-`position: fixed; top:0; right:0; bottom:0; left:<侧栏实测宽度>px`——只覆盖内容区，左侧栏始终可见可点。打开期间监听 `resize` + DOM 变更实时重测宽度。
+面板左边留出侧栏的实测宽度（`left = 侧栏宽度`），并且侧栏变宽变窄时实时跟随。这样打开面板时，左侧的会话列表、新会话按钮都还能正常用。
 
-### 5.3 自动关闭
+### 4.3 点侧栏自动关面板
 
-面板打开期间注册**捕获阶段**全文档点击监听：命中 `[class*="_sidebarCol"]` 即关闭（不拦截侧栏自身点击）；命中 `[data-jinji-nav]`（本按钮）跳过，避免关开闪烁。监听随面板关闭移除。
+面板打开期间，监听整个页面的点击：点到侧栏区域就收起面板（但不拦下这次点击——你点会话，面板收起、会话照常切换）；点到「记忆」按钮本身则跳过（避免关了又开）。
 
-### 5.4 安全模型
+### 4.4 安全上做了什么
 
-- 路径防护：`rel` 必须以 `.journal/` 开头、无 `..`/空段，且 `fs.contains(journalRoot, file)` 校验；
-- 输出安全：前端所有数据经 `esc()`（`& < > " '` 转义）后才进入 innerHTML；
-- 只读：本插件不写日志库任何文件。
+- **路径校验**：要读的文件必须位于 `.journal/` 之内，路径里不能有 `..`，读之前再用官方接口做一次归属校验；
+- **内容转义**：日志内容在进入页面前全部转义，恶意文本不可能变成可执行代码；
+- **只读**：这个插件不会写入或修改日志库的任何文件。
 
-## 6. 部署拓扑
+## 5. 部署后的样子
 
 ```mermaid
 flowchart TB
-    subgraph Profile["~/.dsh/profiles/web/"]
-        PKG["package.json<br/>bundles: [..., dsh-plugin-jinji]"]
-        PATCH["cordis.patch.yml<br/>config.root 覆盖（可选）"]
+    subgraph Profile["你的 profile 目录 ~/.dsh/profiles/web/"]
+        PKG["package.json<br/>依赖列表里加了 dsh-plugin-jinji"]
+        PATCH["cordis.patch.yml<br/>（可选）指定日志库路径"]
     end
     subgraph DSH["dsh web（进程）"]
-        LOADER["Loader → bundle 层"]
-        HOST["Host 半：route + fs"]
-        MODULES["client-modules → /plugins/dsh-plugin-jinji/client.js"]
+        LOADER["插件加载器"]
+        HOST["服务端部分：数据接口 + 文件读取"]
+        MODULES["浏览器模块服务：向网页提供本插件的浏览器代码"]
     end
     PKG --> LOADER
     PATCH --> LOADER
     LOADER --> HOST
-    MODULES -->|window.__DSH_BOOT__| BROWSER["浏览器页面"]
-    HOST -->|"/api/jinji-memory"| BROWSER
+    MODULES --> BROWSER["网页页面"]
+    HOST -->|数据接口| BROWSER
 ```

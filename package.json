@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-jinji",
-  "version": "0.2.0",
-  "description": "谨迹（Jinji）记忆面板：DeepSeek Harness 双半 UI 插件 —— 侧栏「记忆」入口 + 日志/画像浏览面板（零构建，文档架构优先）",
+  "version": "0.2.1",
+  "description": "谨迹（Jinji）记忆面板：一个 DeepSeek Harness 插件，在网页左侧栏加「记忆」入口，随时浏览自己的日志与人物/产品画像（无需编译、无第三方依赖）",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",

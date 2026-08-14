@@ -4,7 +4,7 @@
 
 ## 1. HTTP 路由
 
-由 Host 半经 `ctx.webServer.register` 注册：
+由服务端部分（lib/index.js）经 `ctx.webServer.register` 注册：
 
 ```
 GET /api/jinji-memory?action=index
@@ -87,13 +87,13 @@ GET /api/jinji-memory?action=read&rel=<path>
 ```jsonc
 {
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },  // 安装进 profile 自动应用的组合包层
-    "client": { "platform": "web", "inject": [] } // 浏览器半声明；必须为对象，
-                                                  // 布尔 true 会使 client-modules 抛错导致整树崩溃
+    "bundle": { "patch": "./cordis.patch.yml" },  // 安装进 profile 自动应用的配置
+    "client": { "platform": "web", "inject": [] } // 浏览器部分的声明；必须写成对象，
+                                                  // 写成 true 会让模块扫描器报错、整个网页应用启动失败
   },
   "exports": {
-    ".": "./lib/index.js",          // Host 半（Loader 物化）
-    "./client": "./lib/client.js"   // Client 半（/plugins/<id>/client.js 提供）
+    ".": "./lib/index.js",          // 服务端部分（插件加载器直接加载这个文件）
+    "./client": "./lib/client.js"   // 浏览器部分（网页从 /plugins/<id>/client.js 获取）
   }
 }
 ```
@@ -111,4 +111,4 @@ GET /api/jinji-memory?action=read&rel=<path>
 ## 5. 兼容性边界
 
 - 语义后缀选择器依赖 DSH shell 的 CSS Module 命名约定（`*_newSession`/`*_sidebarCol`）；官方构建若重命名语义后缀需同步（见 [ADR-0001](design-decisions.md#adr-0001) 的风险评估）。
-- 前端无运行时依赖、无构建步骤；`lib/client.js` 是手写 `window.__ModuleLoader__` 惰性 bundle。
+- 前端不依赖任何第三方包、不需要编译；`lib/client.js` 是手写的浏览器模块文件（官方 `window.__ModuleLoader__` 格式，网页在用到时才执行它）。

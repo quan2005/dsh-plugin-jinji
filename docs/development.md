@@ -6,13 +6,13 @@
 
 - Node.js ≥ 22（DSH 运行时要求；本包代码亦兼容）
 - `dsh` CLI（`npx @deepseek-ai/dsh` 或源码 checkout）
-- 本包**零依赖、零构建**——无需 `pnpm install` 即可工作
+- 本包**不依赖任何第三方包、无需编译**——不用 `pnpm install` 就能开工
 
 ## 2. 项目布局
 
 ```
-lib/index.js          Host 半：数据路由（契约见 docs/api.md）
-lib/client.js         Client 半：入口按钮 + 面板（架构见 docs/architecture.md）
+lib/index.js          服务端部分：数据接口与文件读取（契约见 docs/api.md）
+lib/client.js         浏览器部分：入口按钮 + 面板（架构见 docs/architecture.md）
 cordis.patch.yml      组合包层
 docs/                 文档体系（architecture / api / design-decisions / development）
 examples/             示例配置
@@ -21,7 +21,7 @@ examples/             示例配置
 ## 3. 本地开发循环
 
 ```sh
-# 1) 语法检查（唯一构建步骤，因为零构建）
+# 1) 语法检查（无需编译，这是唯一的"检查步骤"）
 npm run check
 
 # 2) 本地安装到 profile
@@ -46,17 +46,17 @@ dsh web                              # 打开 http://127.0.0.1:3080
 
 ## 4. 调试
 
-- **Host 半**：`node --input-type=module` 直接 import `lib/index.js`，注入 mock `fs`（见 `scripts/smoke-host.mjs` 风格）驱动 `apply` 与路由 handler；
-- **Client 半**：mock `window.__ModuleLoader__` + 最小 DOM 桩驱动 factory 与 `apply`（按钮注入、样式拷贝、面板挂载）；
-- **运行时**：面板数据流可用浏览器 DevTools Network 观察 `/api/jinji-memory`；Host 半日志进 dsh 进程 stdout。
+- **服务端部分**：用 Node 直接加载 `lib/index.js`，传一个模拟的文件系统进去（`scripts/smoke.mjs` 里就是这么做的），驱动数据接口验证响应；
+- **浏览器部分**：模拟 `window.__ModuleLoader__` 和最小化的 DOM 环境，驱动模块加载与初始化（按钮注入、样式拷贝、面板挂载）；
+- **运行时**：面板数据流可在浏览器 DevTools 的 Network 面板观察 `/api/jinji-memory`；服务端日志进 dsh 进程的终端输出。
 
 ## 5. 验证清单
 
 改动任一文件后：
 
 ```sh
-npm run check                     # 双半语法
-node scripts/smoke.mjs            # 双半冒烟（mock 驱动）
+npm run check                     # 两部分代码的语法检查
+node scripts/smoke.mjs            # 模拟环境下的自动自检
 npm pack --dry-run                # 发布内容核对（应只有 8 个文件）
 dsh --profile web --dump-config   # 组合层落位
 ```
