@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- README 新增面板效果图（`docs/images/screenshot.png`）
+
 ## [0.3.1] - 2026-08-14
 
 ### Added

@@ -5,6 +5,8 @@
 [![GitHub release](https://img.shields.io/github/v/release/quan2005/dsh-plugin-jinji)](https://github.com/quan2005/dsh-plugin-jinji/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
+![记忆面板效果：左侧栏「记忆」入口，点开按月份浏览日志卡片](docs/images/screenshot.png)
+
 ## 这是什么
 
 **核心理念**：把「记忆」直接带进 DeepSeek Harness，让它成为这个工具自带的记忆能力——**不需要安装任何其他软件**。
