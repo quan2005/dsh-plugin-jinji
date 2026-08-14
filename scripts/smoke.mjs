@@ -3,13 +3,16 @@
  *
  * 服务端部分：在临时目录里造一个最小 .journal 日志库，驱动
  *   - 数据路由：index 计数、read 全文、路径越界拒绝；
+ *   - index 缓存：mtimeMs+size 指纹命中/失效，以及真实 fs 服务形态
+ *     （stat 无 mtimeMs、version 为字符串）下的命中/失效；
  *   - 启动注入：摘要快照、按会话缓存（书写规范不做全局注入，由预设承载）；
- *   - 配置链路：默认值、POST 校验、文件持久化、画像条数截断、开关即时生效；
+ *   - 配置链路：默认值、POST 校验、文件持久化、画像条数截断、开关即时生效、
+ *     并发写防护（磁盘外改字段不被另一会话的保存打回）；
  *   - 预设安装：copy standard → 改写 persona → preset.yml → 重复安装幂等。
  * 浏览器部分：mock window.__ModuleLoader__ 驱动 factory 物化，
  *   验证导出形状与设置卡片注册（slots 缺失时静默跳过）。
  */
-import { realpathSync, statSync, readdirSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { realpathSync, statSync, readdirSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -39,18 +42,24 @@ for (const n of ['甲', '乙', '丙']) {
 }
 
 // ── 服务端部分 ──────────────────────────────────────────────────────────
+// 注：真实 fs 服务的 stat 返回 { version, type, size? }，没有 mtimeMs（见
+// @deepseek-ai/dsh-fs 的 FsInfo）；这里给 mock 补上 mtimeMs 字段，是为了
+// 驱动 index 缓存的 mtimeMs+size 指纹路径。真实形态由下方 ROOT2 场景单独覆盖。
+let fsReads = 0
 const target = (p) => ({ key: realpathSync(p) })
 const fsMock = {
   resolve: async (p) => { try { return target(p) } catch { return { key: p } } },
   stat: async (t) => {
-    try { const s = statSync(t.key); return { version: {}, type: s.isDirectory() ? 'directory' : 'file', size: s.size } }
-    catch { return undefined }
+    try {
+      const s = statSync(t.key)
+      return { version: {}, type: s.isDirectory() ? 'directory' : 'file', size: s.size, mtimeMs: s.mtimeMs }
+    } catch { return undefined }
   },
   listDir: async (t) => readdirSync(t.key).map((name) => {
     const s = statSync(join(t.key, name))
     return { name, type: s.isDirectory() ? 'directory' : 'file', target: target(join(t.key, name)), size: s.size }
   }),
-  readText: async (t) => readFileSync(t.key, 'utf8'),
+  readText: async (t) => { fsReads++; return readFileSync(t.key, 'utf8') },
   writeText: async (t, content) => { mkdirSync(dirname(t.key), { recursive: true }); writeFileSync(t.key, content) },
   contains: (p, c) => c.key === p.key || c.key.startsWith(p.key + '/'),
 }
@@ -129,6 +138,70 @@ assert('read 全文', json().ok === true && json().text.length > 0)
 await get('/api/jinji-memory?action=read&rel=../../etc/passwd')
 assert('越界拒绝', json().ok === false)
 
+// ── index 缓存（mtimeMs+size 指纹） ─────────────────────────────────────
+console.log('index 缓存（mtimeMs+size 指纹）')
+const readsAfterFirst = fsReads // 首次 index + read 全文已发生
+await get('/api/jinji-memory?action=index')
+const again = json()
+assert('连续第二次 index 结果正确', again.ok === true && again.journals.length === 2 && again.personas.length === 4)
+assert('指纹未变时命中缓存（不再重读文件）', fsReads === readsAfterFirst, { readsAfterFirst, now: fsReads })
+// 改内容并显式推进 mtime（避免同毫秒写入导致指纹碰巧不变），确保指纹变化
+const probeMd = join(ROOT, '.journal/memory/2608/01-开库.md')
+writeFileSync(probeMd, '---\ntitle: 开库\ndate: 2026-08-01\nsummary: 建立日志库v2\n---\n\n正文更新。\n')
+const later = new Date(Date.now() + 5000)
+utimesSync(probeMd, later, later)
+await get('/api/jinji-memory?action=index')
+const refreshed = json()
+const refreshedHit = (refreshed.journals || []).find((j) => j.rel.endsWith('01-开库.md'))
+assert('变更文件后 index 反映新内容', refreshedHit !== undefined && refreshedHit.summary === '建立日志库v2', refreshedHit)
+assert('只重读变更的那一个文件', fsReads === readsAfterFirst + 1, { readsAfterFirst, now: fsReads })
+await get('/api/jinji-memory?action=read&rel=' + encodeURIComponent('.journal/memory/2608/01-开库.md'))
+assert('read 读全文不经过缓存', json().text.includes('建立日志库v2'))
+
+// ── index 缓存（version 指纹，模拟真实 fs 服务的 stat 形态） ────────────
+console.log('index 缓存（version 指纹，模拟真实 fs 服务 stat 形态）')
+const ROOT2 = mkdtempSync(join(tmpdir(), 'jinji-smoke-v-'))
+mkdirSync(join(ROOT2, '.journal/memory/2608'), { recursive: true })
+mkdirSync(join(ROOT2, '.journal/identity'), { recursive: true })
+writeFileSync(join(ROOT2, '.journal/memory/2608/01-甲.md'), '---\ntitle: 甲\nsummary: 旧内容\n---\n')
+// 仿真实 fs 服务：stat 无 mtimeMs，version 为字符串（本地后端用
+// stat(bigint) 的 dev:ino:size:mtimeNs:ctimeNs 组装；这里以 mtimeMs/ctimeMs
+// 等价模拟——注意本 Node 的 statSync 没有 mtimeNs 字段），是缓存唯一的失效信号。
+let fs2Reads = 0
+const fsMock2 = {
+  resolve: fsMock.resolve,
+  stat: async (t) => {
+    try {
+      const s = statSync(t.key)
+      return { version: `${s.dev}:${s.ino}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`, type: s.isDirectory() ? 'directory' : 'file', size: s.size }
+    } catch { return undefined }
+  },
+  listDir: fsMock.listDir,
+  readText: async (t) => { fs2Reads++; return readFileSync(t.key, 'utf8') },
+  writeText: fsMock.writeText,
+  contains: fsMock.contains,
+}
+let route2 = null
+apply({
+  effect: (cb) => cb(),
+  on: () => {},
+  inject: () => {},
+  get: () => undefined,
+  webServer: { register: (r) => { route2 = r } },
+  fs: fsMock2,
+}, { root: ROOT2 })
+const get2 = (url) => route2.handler({ method: 'GET', url }, res)
+await get2('/api/jinji-memory?action=index')
+assert('version 指纹：首次 index 正确', json().ok === true && json().journals.length === 1)
+const vReadsAfterFirst = fs2Reads
+await get2('/api/jinji-memory?action=index')
+assert('version 指纹：第二次 index 复用缓存', fs2Reads === vReadsAfterFirst && json().journals[0].summary === '旧内容')
+writeFileSync(join(ROOT2, '.journal/memory/2608/01-甲.md'), '---\ntitle: 甲\nsummary: 新内容\n---\n')
+const later2 = new Date(Date.now() + 5000)
+utimesSync(join(ROOT2, '.journal/memory/2608/01-甲.md'), later2, later2)
+await get2('/api/jinji-memory?action=index')
+assert('version 指纹：变更后拿到新内容', json().journals[0].summary === '新内容' && fs2Reads === vReadsAfterFirst + 1)
+
 // ── 启动注入（默认配置，仅摘要） ────────────────────────────────────────
 console.log('启动注入（默认配置，仅摘要）')
 const agentA = { session: { header: { cwd: ROOT } } }
@@ -166,6 +239,18 @@ await new Promise((r) => setTimeout(r, 200))
 assert('画像条数按配置截断', contexts[0].text({ agent: agentB }).includes('仅列出前 2 条'))
 await post({ startupContext: false })
 assert('总开关关闭后摘要为空', contexts[0].text({ agent: agentB }) === '')
+
+// ── 配置并发写防护（读-改-写） ──────────────────────────────────────────
+console.log('配置并发写防护（读-改-写）')
+await post({ maxEntries: 15 })
+assert('会话 A 保存 maxEntries=15', json().ok === true && json().config.maxEntries === 15)
+// 模拟另一会话绕过本会话直接在磁盘上写入 maxPersonas=99（本会话 runtimeConfig 不知情）
+const cfgPath = join(ROOT, '.jinji-memory.json')
+writeFileSync(cfgPath, JSON.stringify({ ...JSON.parse(readFileSync(cfgPath, 'utf8')), maxPersonas: 99 }, null, 2) + '\n')
+await post({ maxBytes: 8000 })
+const onDisk = JSON.parse(readFileSync(cfgPath, 'utf8'))
+assert('并发写三者共存（磁盘字段不被打回）', onDisk.maxEntries === 15 && onDisk.maxPersonas === 99 && onDisk.maxBytes === 8000, onDisk)
+assert('写回后本会话配置同步刷新', json().config.maxEntries === 15 && json().config.maxPersonas === 99 && json().config.maxBytes === 8000)
 
 // ── 预设安装 ────────────────────────────────────────────────────────────
 console.log('预设安装')
