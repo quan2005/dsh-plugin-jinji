@@ -54,6 +54,8 @@ POST /api/jinji-memory?action=install-preset
 | 内部异常 | `{ "ok": false, "reason": "<message>" }`（HTTP 500） |
 | 方法非 GET | `{ "ok": false, "reason": "method-not-allowed" }`（HTTP 405） |
 
+> 性能：index 带条目级指纹缓存（对调用方透明）——每个文件按 stat 指纹（fs 服务的 `version` 令牌，或 mtimeMs+size）判断是否变更，未变更的直接复用解析结果，指纹不可用时退化为直读；文件一变即自动重读，不会给陈旧列表。
+
 ### 1.2 `action=read&rel=…` — 单条全文
 
 响应 `200`：
@@ -85,15 +87,15 @@ POST /api/jinji-memory?action=install-preset
 `POST` 请求体为 JSON 对象，只接受配置表列出的四个字段（可部分提交）：
 
 - 全部字段逐一校验（类型 + 取值范围），任一字段非法 → `400 { ok: false, reason }`，不落盘；
-- 校验通过 → 合并进运行时配置、全量写回 `<root>/.jinji-memory.json`（`fs.writeText` 原子写），响应 `200 { ok: true, config }`；
+- 校验通过 → **读-改-写**：以磁盘上的现配置文件为基底（读不到/损坏时以运行时配置为基底），只覆盖本次提交的字段，原子写回 `<root>/.jinji-memory.json`（`fs.writeText`），响应 `200 { ok: true, config }`。两个 DSH 会话并行保存不会把对方刚写的字段打回旧值；磁盘上其他会话写入的未知字段原样保留；
 - 保存即时生效：下一个新会话的启动注入立即采用新值（进行中的会话仍用会话开始时的快照）。
 
 ### 1.4 `action=install-preset` — 安装「谨迹秘书」Agent 预设
 
 `POST`（无请求体）：
 
-- 已安装 → `200 { ok: true, already: true }`（幂等）；
-- 未安装 → 经 roster 官方创作通道 `copy('standard', 'jinji', '谨迹秘书')` 复制当前 standard 预设，把 persona 行整段替换为秘书人设（书写规范全文，`{{model}}` / `{{cwd}}` 模板变量保留），写入 `preset.yml`，最后 `standingKeyFor` 挂载校验；全部成功 → `200 { ok: true, already: false }`；
+- 已安装 → `200 { ok: true, already: true }`（幂等，含安装中被并发抢先进度的竞态）；
+- 未安装 → 经 roster 官方创作通道 `copy('standard', 'jinji', '谨迹秘书')` 复制当前 standard 预设，把 persona 行整段替换为秘书人设（书写规范全文，`{{model}}` / `{{cwd}}` 模板变量保留），补写 `preset.yml` 的描述，最后 `standingKeyFor` 挂载校验；预设目录下的文件用 node:fs 直写（preset 根目录在 fs 服务写沙箱之外，见 ADR-0013）；全部成功 → `200 { ok: true, already: false }`；
 - roster 服务不可用 / persona 行缺失 / 挂载校验失败 → `500 { ok: false, reason }`；
 - 非 POST → `405`。
 
