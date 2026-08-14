@@ -1,0 +1,7 @@
+# 示例：在 profile 层覆盖日志库根目录
+#
+# 复制到 ~/.dsh/profiles/web/cordis.patch.yml（追加到数组），
+# 重启 dsh web 生效。按 id 定位的 patch 会替换整行 config。
+- id: jinji-memory
+  config:
+    root: /Users/you/Documents/journal

@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-jinji",
-  "version": "0.1.0",
-  "description": "谨迹（Jinji）记忆面板：DeepSeek Harness 双半 UI 插件 —— 侧栏「记忆」入口 + 日志/画像浏览面板（零构建）",
+  "version": "0.2.0",
+  "description": "谨迹（Jinji）记忆面板：DeepSeek Harness 双半 UI 插件 —— 侧栏「记忆」入口 + 日志/画像浏览面板（零构建，文档架构优先）",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -13,9 +13,19 @@
   "files": [
     "lib",
     "cordis.patch.yml",
+    "docs",
+    "examples",
+    "scripts",
     "README.md",
+    "CONTRIBUTING.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/client.js && node --check scripts/smoke.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "pack": "npm pack --dry-run"
+  },
   "keywords": [
     "deepseek-harness",
     "dsh",
