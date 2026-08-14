@@ -4,9 +4,21 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-14
+
 ### Added
 
+- 可视化配置：「设置 → 插件配置」新增「谨迹记忆」卡片（注册进官方开放的 `settings.plugin.item` 槽位），可改：摘要日志条数、摘要画像条数、摘要字节上限、启动注入总开关、书写规范开关、自定义书写规范提示词
+- 新配置字段：`maxPersonas`（默认 30，启动摘要的画像条数，超出标注「仅列出前 N 条」）、`writeProtocolEnabled`（默认 true）、`writeProtocol`（默认空 = 内置规范，支持 `__MEMORY_ROOT__` 占位符）
+- 配置持久化：保存写入记忆根目录的 `.jinji-memory.json`（`fs.writeText` 原子写，逐字段校验），随记忆库一起迁移；生效优先级：配置文件 > cordis config > 内置默认
+- 数据路由新增 `GET/POST /api/jinji-memory?action=config`
 - README 新增面板效果图（`docs/images/screenshot.png`）
+- 文档：api.md 配置章节重写、architecture.md 新增 4.5 配置机制、ADR-0011
+
+### Changed
+
+- 配置保存后**无需重启**：启动注入的上下文提供器每次组装实时读取生效配置，下一个新会话立即采用新值（`startupContext: false` 从「启动时不注册」改为「注册但返回空」，可随时在界面重新打开）
+- 冒烟测试改为自包含（临时目录造最小日志库，不再依赖真实库路径），扩至 32 断言
 
 ## [0.3.1] - 2026-08-14
 

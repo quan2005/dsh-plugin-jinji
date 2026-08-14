@@ -7,8 +7,10 @@
 由服务端部分（lib/index.js）经 `ctx.webServer.register` 注册：
 
 ```
-GET /api/jinji-memory?action=index
-GET /api/jinji-memory?action=read&rel=<path>
+GET  /api/jinji-memory?action=index
+GET  /api/jinji-memory?action=read&rel=<path>
+GET  /api/jinji-memory?action=config
+POST /api/jinji-memory?action=config
 ```
 
 ### 1.1 `action=index` — 日志与画像索引
@@ -65,23 +67,50 @@ GET /api/jinji-memory?action=read&rel=<path>
 - 路径段不得为空、不得为 `..`；
 - 解析后的目标必须位于 `.journal` 之内（`fs.contains` 校验）。
 
-## 2. 配置（行 config）
+### 1.3 `action=config` — 配置的读取与保存
+
+`GET` 响应 `200`：
+
+```jsonc
+{
+  "ok": true,
+  "config": { "maxEntries": 20, "maxPersonas": 30, "maxBytes": 60000,
+              "startupContext": true, "writeProtocolEnabled": true, "writeProtocol": "" },
+  "defaults": { /* 内置默认，同结构 */ },
+  "protocolBuiltin": "# 记忆书写规范（主动记录）…",  // 内置书写规范全文
+  "file": ".jinji-memory.json"                       // 配置文件名（位于记忆根目录下）
+}
+```
+
+`POST` 请求体为 JSON 对象，只接受上表列出的六个字段（可部分提交）：
+
+- 全部字段逐一校验（类型 + 取值范围），任一字段非法 → `400 { ok: false, reason }`，不落盘；
+- 校验通过 → 合并进运行时配置、全量写回 `<root>/.jinji-memory.json`（`fs.writeText` 原子写），响应 `200 { ok: true, config }`；
+- 保存即时生效：下一个新会话的启动注入立即采用新值（进行中的会话仍用会话开始时的快照）。
+
+## 2. 配置
+
+**推荐用界面改**：「设置 → 插件配置 → 谨迹记忆」卡片，保存在记忆根目录的 `.jinji-memory.json`，无需重启、新会话生效。
+
+也可以在 profile 的 `cordis.patch.yml` 里覆盖（改完需重启 dsh web）：
 
 ```yaml
-# 在 profile 的 cordis.patch.yml 覆盖
 - id: jinji-memory
   config:
     root: /Users/you/Documents/journal
 ```
 
-| 字段 | 类型 | 必填 | 默认 | 说明 |
-|---|---|---|---|---|
-| `root` | string | 否 | `DSH_JINJI_ROOT` → `process.cwd()` | 日志库根目录（需含 `.journal/`） |
-| `startupContext` | boolean | 否 | `true` | 是否在会话启动时注入记忆摘要与书写规范（见下文） |
-| `maxEntries` | number | 否 | `20` | 启动摘要中最多包含的最近日志条数 |
-| `maxBytes` | number | 否 | `60000` | 启动摘要文本的字节软上限（超出截断并提示） |
+| 字段 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `root` | string | `DSH_JINJI_ROOT` → `process.cwd()` | 日志库根目录（需含 `.journal/`）。**只能在 cordis config / 环境变量里配**（配置文件自己就放在 root 下） |
+| `maxEntries` | int 1–200 | `20` | 启动摘要里带多少条最近日志 |
+| `maxPersonas` | int 1–500 | `30` | 启动摘要里带多少条画像（超出截断并标注「仅列出前 N 条」） |
+| `maxBytes` | int 4096–500000 | `60000` | 启动摘要文本的字节软上限（超出截断并提示） |
+| `startupContext` | boolean | `true` | 是否注入启动上下文（摘要 + 书写规范） |
+| `writeProtocolEnabled` | boolean | `true` | 是否注入书写规范（摘要不受影响） |
+| `writeProtocol` | string ≤ 50000 字符 | `''` | 自定义书写规范；空 = 用内置默认。文本里可用 `__MEMORY_ROOT__` 占位记忆根目录 |
 
-解析优先级：**config.root > 环境变量 `DSH_JINJI_ROOT` > dsh 进程工作目录**。
+生效优先级：**配置文件（`.jinji-memory.json`）> cordis config > 内置默认**；`root` 的解析优先级仍是 **config.root > 环境变量 `DSH_JINJI_ROOT` > dsh 进程工作目录**。
 
 > 注意 patch 语义：按 id 定位的 patch 会**替换整行 config**（不做深合并），覆盖时无需重述其他字段（本行默认无其他字段）。
 
@@ -110,10 +139,11 @@ GET /api/jinji-memory?action=read&rel=<path>
 | `jinji:memory-summary` | 130 | 最近 `maxEntries` 条日志 + 全部画像档案的 summary 快照 | **读**：让模型开局就带着记忆 |
 | `jinji:memory-protocol` | 135 | 记忆书写规范：何时写、日志/画像怎么写、frontmatter 约定、建档门槛 | **写**：让模型像记忆管家一样主动沉淀记忆 |
 
-- **触发**：每个新会话启动时（`agent/session-start` 事件），异步预计算一份记忆快照——最近 `maxEntries` 条日志的 summary + 全部画像档案的 summary；会话期间只计算一次（按会话缓存，SessionStart 语义）；
+- **触发**：每个新会话启动时（`agent/session-start` 事件），异步预计算一份记忆快照——最近 `maxEntries` 条日志的 summary + 前 `maxPersonas` 条画像档案的 summary；会话期间只计算一次（按会话缓存，SessionStart 语义）；
 - **根目录选择**：优先会话自己的工作目录（若其中有 `.journal/`），否则回退到插件的 `root` 配置；书写规范会把实际使用的根目录写进文本（`记忆根目录：<root>`）；
-- **约束与降级**：上下文提供器必须是同步的，而文件读取是异步的——所以采用「会话启动时异步预计算 + 提供器同步取缓存」。若首个请求发出前预计算未完成，该次请求暂无摘要；书写规范是静态文本、不依赖快照，始终注入；
-- **关闭方式**：`config.startupContext: false`（两块一起关闭）；
+- **约束与降级**：上下文提供器必须是同步的，而文件读取是异步的——所以采用「会话启动时异步预计算 + 提供器同步取缓存」。若首个请求发出前预计算未完成，该次请求暂无摘要；书写规范不依赖快照，始终注入；
+- **配置的生效时机**：提供器每次组装都读当前生效配置——在设置卡片里保存后**无需重启**，下一个新会话立即采用新值（进行中的会话保持会话开始时的快照）；
+- **关闭方式**：`startupContext: false` 两块一起关；`writeProtocolEnabled: false` 只关书写规范、保留摘要；
 - **注意**：若同时使用带同类能力的其他配置（例如另一个记忆 preset），两侧会各注入一份，建议保留其一。
 
 ## 4. Client 侧内部契约

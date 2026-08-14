@@ -1,7 +1,17 @@
-# 示例：在 profile 层覆盖日志库根目录
+# 示例：在 profile 层覆盖插件配置
 #
 # 复制到 ~/.dsh/profiles/web/cordis.patch.yml（追加到数组），
 # 重启 dsh web 生效。按 id 定位的 patch 会替换整行 config。
+#
+# root 只能在这里（或环境变量 DSH_JINJI_ROOT）配置；
+# 其余字段更推荐在「设置 → 插件配置 → 谨迹记忆」卡片里改
+# （保存在记忆根目录的 .jinji-memory.json，无需重启、新会话生效）。
 - id: jinji-memory
   config:
     root: /Users/you/Documents/journal
+    # maxEntries: 20            # 启动摘要带多少条最近日志（1–200）
+    # maxPersonas: 30           # 启动摘要带多少条画像（1–500）
+    # maxBytes: 60000           # 摘要字节软上限（4096–500000）
+    # startupContext: true      # 是否注入启动上下文（摘要 + 书写规范）
+    # writeProtocolEnabled: true # 是否注入书写规范
+    # writeProtocol: ''         # 自定义书写规范；空 = 内置默认

@@ -29,6 +29,8 @@ dsh plugin --profile web add github:quan2005/dsh-plugin-jinji
 
 插件找日志库的顺序：配置文件里写的 `root` → 环境变量 `DSH_JINJI_ROOT` → dsh 启动时所在的目录。示例见 [examples/profile-patch.yml](examples/profile-patch.yml)。
 
+装好后到「设置 → 插件配置 → 谨迹记忆」卡片调整：摘要带多少条日志/画像、字节上限、书写规范提示词。保存在记忆根目录的 `.jinji-memory.json`，**无需重启**，新会话生效。
+
 ## 能做什么
 
 - 左侧栏「新会话」下方多一个「记忆」按钮，样式和官方按钮一致（收起成窄栏时自动变图标）
@@ -38,6 +40,7 @@ dsh plugin --profile web add github:quan2005/dsh-plugin-jinji
 - 面板只盖住中间区域，左侧栏随时可以点；点侧栏任意位置面板自动收起；Esc 或 × 也能关
 - **启动注入**：每个新会话开始时，自动把最近日志与全部画像的摘要注入上下文（`config.startupContext: false` 可关）
 - **主动书写**：会话同时注入一份记忆书写规范（什么时候记、日志/画像怎么写），让 DSH 里的 AI 会话像记忆管家一样主动沉淀记忆，而不只是读取
+- **可视化配置**：「设置 → 插件配置」里有「谨迹记忆」卡片——日志/画像条数、摘要上限、书写规范提示词都能改，保存即生效（新会话），不用手改 YAML
 - 颜色完全跟随 DeepSeek Harness 官方深色主题；所有内容都做了转义和路径校验，只读不改
 
 ## 文档（写给开发者）
@@ -46,7 +49,7 @@ dsh plugin --profile web add github:quan2005/dsh-plugin-jinji
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | 插件怎么分成「服务端部分」和「浏览器部分」、数据怎么流动、官方接口；记忆系统核心架构：**summary 分层加载 + 双轨记忆（流水 / 画像实体）+ 读写闭环（启动注入）**，配图 |
 | [docs/api.md](docs/api.md) | 后台接口的完整约定：请求、响应字段、配置项、兼容边界 |
-| [docs/design-decisions.md](docs/design-decisions.md) | 每个重要取舍的记录：为什么这么做、理由、有什么风险（ADR-0001 ~ 0010） |
+| [docs/design-decisions.md](docs/design-decisions.md) | 每个重要取舍的记录：为什么这么做、理由、有什么风险（ADR-0001 ~ 0011） |
 | [docs/development.md](docs/development.md) | 怎么改代码、怎么调试、改完怎么验证、前人踩过的坑 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 想贡献代码时的规矩 |
 | [CHANGELOG.md](CHANGELOG.md) | 每个版本改了什么 |
