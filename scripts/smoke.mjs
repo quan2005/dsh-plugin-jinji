@@ -38,8 +38,17 @@ const fsMock = {
 }
 
 const { apply } = await import('../lib/index.js')
+const eventHandlers = {}
+const injected = []
+const ctx = {
+  effect: (cb) => cb(),
+  on: (name, fn) => { eventHandlers[name] = fn },
+  inject: (deps, cb) => { injected.push({ deps, cb }) },
+  webServer: { register: (r) => { route = r } },
+  fs: fsMock,
+}
 let route = null
-apply({ effect: (cb) => cb(), webServer: { register: (r) => { route = r } }, fs: fsMock }, { root: ROOT })
+apply(ctx, { root: ROOT })
 
 console.log(`Host 半（root=${ROOT}）`)
 let captured = {}
@@ -64,6 +73,24 @@ assert('read 全文', doc.ok === true && doc.text.length > 0, doc.text.length)
 await route.handler({ method: 'GET', url: '/api/jinji-memory?action=read&rel=../../etc/passwd' }, res)
 const bad = JSON.parse(captured.body)
 assert('越界拒绝', bad.ok === false)
+
+// ── 启动时的记忆摘要注入 ───────────────────────────────────────────────
+console.log('启动摘要注入')
+const fakeAgent = { session: { header: { cwd: ROOT } } }
+assert('已注册 session-start 监听', typeof eventHandlers['agent/session-start'] === 'function')
+assert('已声明 systemPrompt 依赖', injected.some((i) => i.deps.includes('systemPrompt')))
+const contexts = []
+for (const entry of injected) {
+  if (entry.deps.includes('systemPrompt')) entry.cb({ systemPrompt: { context: (c) => contexts.push(c) } })
+}
+assert('已注册上下文提供器', contexts.length === 1 && contexts[0].name === 'jinji:memory-summary')
+assert('预计算前为空', contexts[0].text({ agent: fakeAgent }) === '')
+eventHandlers['agent/session-start']({ agent: fakeAgent, source: 'fresh' })
+await new Promise((r) => setTimeout(r, 200)) // 等异步预计算完成
+const snapshot = contexts[0].text({ agent: fakeAgent })
+assert('快照包含日志摘要', snapshot.includes('最近') && snapshot.length > 0)
+assert('快照包含画像摘要', snapshot.includes('画像档案'))
+assert('无 agent 时返回空', contexts[0].text({}) === '')
 
 // ── Client 半 ──────────────────────────────────────────────────────────────
 console.log('Client 半')

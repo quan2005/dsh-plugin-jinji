@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-14
+
+### Added
+
+- 启动时的记忆摘要注入：会话启动时自动预计算「最近日志 + 全部画像」的 summary 快照，作为运行时上下文注入模型历史（`agent/session-start` 异步预计算 + systemPrompt 同步提供器，按会话缓存一次）
+- 新配置：`startupContext`（开关）/ `maxEntries`（20）/ `maxBytes`（60000）
+- 文档：api.md 新增启动注入章节、architecture.md 落地说明、ADR-0009
+- 自检：smoke 扩至 16 断言，覆盖注入链路（预计算前为空 → session-start 后快照含日志与画像摘要）
+
+
 ## [0.2.6] - 2026-08-14
 
 ### Added

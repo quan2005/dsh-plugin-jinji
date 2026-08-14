@@ -77,6 +77,9 @@ GET /api/jinji-memory?action=read&rel=<path>
 | 字段 | 类型 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
 | `root` | string | 否 | `DSH_JINJI_ROOT` → `process.cwd()` | 日志库根目录（需含 `.journal/`） |
+| `startupContext` | boolean | 否 | `true` | 是否在会话启动时注入记忆摘要（见下文） |
+| `maxEntries` | number | 否 | `20` | 启动摘要中最多包含的最近日志条数 |
+| `maxBytes` | number | 否 | `60000` | 启动摘要文本的字节软上限（超出截断并提示） |
 
 解析优先级：**config.root > 环境变量 `DSH_JINJI_ROOT` > dsh 进程工作目录**。
 
@@ -97,6 +100,17 @@ GET /api/jinji-memory?action=read&rel=<path>
   }
 }
 ```
+
+## 3.1 启动时的记忆摘要注入
+
+插件在 Host 侧注册一个 **systemPrompt 动态上下文**（名称 `jinji:memory-summary`，顺序 130，排在沙箱/审批策略快照之后）：
+
+- **触发**：每个新会话启动时（`agent/session-start` 事件），异步预计算一份记忆快照——最近 `maxEntries` 条日志的 summary + 全部画像档案的 summary；
+- **注入**：快照作为运行时上下文进入模型历史，会话期间只计算一次（按会话缓存，SessionStart 语义）；
+- **根目录选择**：优先会话自己的工作目录（若其中有 `.journal/`），否则回退到插件的 `root` 配置；
+- **约束与降级**：上下文提供器必须是同步的，而文件读取是异步的——所以采用「会话启动时异步预计算 + 提供器同步取缓存」。若首个请求发出前预计算未完成，该次请求暂无摘要，后续请求自动补上；
+- **关闭方式**：`config.startupContext: false`；
+- **注意**：若同时使用带同类能力的其他配置（例如 jinji agent preset 的 startup-context），两侧会各注入一份，建议保留其一。
 
 ## 4. Client 侧内部契约
 

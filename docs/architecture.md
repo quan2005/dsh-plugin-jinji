@@ -92,6 +92,10 @@ DeepSeek Harness 的技能（skill）目录只先暴露每个技能的 `name` / 
 
 summary 的撰写、合并、去重、随新素材的更新，全部由 AI 在会话里完成；代码层不做任何语义理解，只负责「按约定读取 summary」。这就是「极简文本记忆系统 + 大模型为核心驱动」的落地方式：文件格式保持最简单，智能全部在模型侧。
 
+### 本插件里就是这样实现的
+
+启动注入在本插件 Host 侧落地：监听 `agent/session-start`，异步用 `composeSummary()`（复用 `listJournals` / `listPersonas` / `parseFrontmatter`）组装快照并按会话缓存；`systemPrompt` 上下文提供器（顺序 130）只同步返回缓存。约束与降级策略见 [api.md](api.md#31-启动时的记忆摘要注入) 与 ADR-0009。
+
 ### 与本插件的关系
 
 - 面板的 `action=index` 接口**只读 summary**，正是索引层的实现；
