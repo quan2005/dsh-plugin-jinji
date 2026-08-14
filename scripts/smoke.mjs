@@ -282,11 +282,12 @@ assert('导出 apply', typeof clientExports.apply === 'function')
 assert('导出 name', clientExports.name === 'jinji-memory')
 
 // apply：注册设置卡片（需要最小 DOM/观察者 mock；槽位缺失时静默跳过）
+const headChildren = []
 globalThis.document = {
-  createElement: () => ({ setAttribute() {}, style: {}, classList: { add() {}, toggle() {} }, addEventListener() {}, appendChild() {}, remove() {} }),
+  createElement: (tag) => ({ tagName: String(tag).toUpperCase(), setAttribute() {}, style: {}, classList: { add() {}, toggle() {} }, addEventListener() {}, appendChild() {}, remove() {}, textContent: '' }),
   querySelector: () => null,
   querySelectorAll: () => [],
-  head: { appendChild() {} },
+  head: { appendChild: (el) => headChildren.push(el) },
   body: { appendChild() {} },
   documentElement: {},
   addEventListener() {},
@@ -310,6 +311,31 @@ try {
   clientExports.apply({ effect: (cb) => cb(), get: () => undefined })
 } catch { threw = true }
 assert('slots 缺失时静默跳过', threw === false)
+
+// ── 搜索过滤纯函数（经 _internals 内部出口驱动，不污染公共 API） ──
+const intl = clientExports._internals
+assert('导出 _internals（过滤纯函数 + 分页常量）', !!intl && typeof intl.filterItems === 'function' && typeof intl.matchQuery === 'function' && intl.PAGE_SIZE === 3, typeof intl)
+const sample = [
+  { rel: 'a', title: '周报汇总', summary: '本周完成冲刺', tags: ['journal', 'research'] },
+  { rel: 'b', title: 'Weekly Report', summary: 'sprint done', tags: [] },
+  { rel: 'c', title: '投资复盘', summary: '赛力斯分析', tags: ['investment'] },
+]
+const relsOf = (q) => intl.filterItems(sample, q).map((x) => x.rel)
+assert('过滤：标题命中且大小写不敏感', JSON.stringify(relsOf('WEEKLY')) === '["b"]', relsOf('WEEKLY'))
+assert('过滤：摘要命中', JSON.stringify(relsOf('sprint')) === '["b"]', relsOf('sprint'))
+assert('过滤：标签命中', JSON.stringify(relsOf('investment')) === '["c"]', relsOf('investment'))
+assert('过滤：多关键词取交集', JSON.stringify(relsOf('周报 汇总')) === '["a"]', relsOf('周报 汇总'))
+assert('过滤：无匹配返回空数组', JSON.stringify(relsOf('不存在')) === '[]', relsOf('不存在'))
+assert('过滤：空查询原样返回全量', intl.filterItems(sample, '   ') === sample)
+assert('过滤：非数组入参安全返回空数组', Array.isArray(intl.filterItems(null, 'x')) && intl.filterItems(undefined, 'x').length === 0)
+assert('matchQuery：内部约定 q 需预先小写', intl.matchQuery(sample[2], 'investment') === true && intl.matchQuery(sample[2], 'INVESTMENT') === false)
+
+// ── 注入 CSS：搜索框 / 键盘高亮 / 哨兵 / 窄屏适配 ──
+const cssText = headChildren.filter((el) => el.tagName === 'STYLE').map((el) => el.textContent).join('\n')
+assert('CSS 含搜索框样式类与占位符样式', cssText.includes('.jm-searchwrap') && cssText.includes('.jm-search') && cssText.includes('.jm-search::placeholder'))
+assert('CSS 含键盘高亮描边（#5B8DB8）', cssText.includes('.jm-kb-active') && cssText.includes('#5B8DB8'))
+assert('CSS 含渐进渲染哨兵样式', cssText.includes('.jm-more'))
+assert('CSS 含 @media 窄屏适配且网格单列', cssText.includes('@media (max-width: 960px)') && cssText.includes('grid-template-columns: 1fr'))
 
 console.log(`\n${passed} 通过 / ${failed} 失败`)
 if (failed > 0) process.exit(1)
