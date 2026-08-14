@@ -1,0 +1,56 @@
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的 tag（例如 v0.5.0）；留空则直接采用 package.json 的 version'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # release 事件检出的是 tag 对应的提交；workflow_dispatch 检出的是当前分支
+      - name: 校验 tag 与 package.json version 一致
+        run: |
+          set -euo pipefail
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED="v${PKG_VERSION}"
+          TAG="${{ github.event.release.tag_name || inputs.tag || '' }}"
+          if [ -z "$TAG" ]; then
+            TAG="$EXPECTED"
+          fi
+          echo "发布 tag：${TAG}（package.json version：${EXPECTED}）"
+          if [[ ! "${TAG}" =~ ^v ]]; then
+            echo "::error::tag 必须以 v 开头，当前为 ${TAG}"
+            exit 1
+          fi
+          if [ "${TAG}" != "${EXPECTED}" ]; then
+            echo "::error::tag ${TAG} 与 package.json version ${PKG_VERSION} 不匹配"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: 语法检查
+        run: npm run check
+
+      - name: 自集成冒烟
+        run: npm run smoke
+
+      - name: 发布到 npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

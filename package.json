@@ -3,6 +3,14 @@
   "version": "0.5.0",
   "description": "把「记忆」带进 DeepSeek Harness：极简文本记忆系统，双轨记忆（流水日志 + 人物/产品实体画像），大模型为核心驱动。无需安装其他软件，无需编译，无第三方依赖。",
   "license": "MIT",
+  "author": "dsh-plugin-jinji Contributors",
+  "homepage": "https://github.com/quan2005/dsh-plugin-jinji#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -14,10 +22,8 @@
     "lib",
     "cordis.patch.yml",
     "docs",
-    "examples",
-    "scripts",
+    "!docs/images",
     "README.md",
-    "CONTRIBUTING.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
@@ -30,8 +36,10 @@
     "deepseek-harness",
     "dsh",
     "dsh-plugin",
-    "journal",
+    "plugin",
+    "cordis",
     "memory",
+    "journal",
     "jinji",
     "journalclaw"
   ],

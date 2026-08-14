@@ -1,0 +1,22 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 零依赖：check 与 smoke 都不需要 npm ci / npm install
+      - name: 语法检查
+        run: npm run check
+
+      - name: 自集成冒烟
+        run: npm run smoke
