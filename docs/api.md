@@ -11,6 +11,7 @@ GET  /api/jinji-memory?action=index
 GET  /api/jinji-memory?action=read&rel=<path>
 GET  /api/jinji-memory?action=config
 POST /api/jinji-memory?action=config
+POST /api/jinji-memory?action=install-preset
 ```
 
 ### 1.1 `action=index` — 日志与画像索引
@@ -74,19 +75,27 @@ POST /api/jinji-memory?action=config
 ```jsonc
 {
   "ok": true,
-  "config": { "maxEntries": 20, "maxPersonas": 30, "maxBytes": 60000,
-              "startupContext": true, "writeProtocolEnabled": true, "writeProtocol": "" },
+  "config": { "maxEntries": 20, "maxPersonas": 30, "maxBytes": 60000, "startupContext": true },
   "defaults": { /* 内置默认，同结构 */ },
-  "protocolBuiltin": "# 记忆书写规范（主动记录）…",  // 内置书写规范全文
-  "file": ".jinji-memory.json"                       // 配置文件名（位于记忆根目录下）
+  "file": ".jinji-memory.json",                      // 配置文件名（位于记忆根目录下）
+  "preset": { "id": "jinji", "available": true, "installed": false }  // 「谨迹秘书」预设状态
 }
 ```
 
-`POST` 请求体为 JSON 对象，只接受上表列出的六个字段（可部分提交）：
+`POST` 请求体为 JSON 对象，只接受配置表列出的四个字段（可部分提交）：
 
 - 全部字段逐一校验（类型 + 取值范围），任一字段非法 → `400 { ok: false, reason }`，不落盘；
 - 校验通过 → 合并进运行时配置、全量写回 `<root>/.jinji-memory.json`（`fs.writeText` 原子写），响应 `200 { ok: true, config }`；
 - 保存即时生效：下一个新会话的启动注入立即采用新值（进行中的会话仍用会话开始时的快照）。
+
+### 1.4 `action=install-preset` — 安装「谨迹秘书」Agent 预设
+
+`POST`（无请求体）：
+
+- 已安装 → `200 { ok: true, already: true }`（幂等）；
+- 未安装 → 经 roster 官方创作通道 `copy('standard', 'jinji', '谨迹秘书')` 复制当前 standard 预设，把 persona 行整段替换为秘书人设（书写规范全文，`{{model}}` / `{{cwd}}` 模板变量保留），写入 `preset.yml`，最后 `standingKeyFor` 挂载校验；全部成功 → `200 { ok: true, already: false }`；
+- roster 服务不可用 / persona 行缺失 / 挂载校验失败 → `500 { ok: false, reason }`；
+- 非 POST → `405`。
 
 ## 2. 配置
 
@@ -106,9 +115,7 @@ POST /api/jinji-memory?action=config
 | `maxEntries` | int 1–200 | `20` | 启动摘要里带多少条最近日志 |
 | `maxPersonas` | int 1–500 | `30` | 启动摘要里带多少条画像（超出截断并标注「仅列出前 N 条」） |
 | `maxBytes` | int 4096–500000 | `60000` | 启动摘要文本的字节软上限（超出截断并提示） |
-| `startupContext` | boolean | `true` | 是否注入启动上下文（摘要 + 书写规范） |
-| `writeProtocolEnabled` | boolean | `true` | 是否注入书写规范（摘要不受影响） |
-| `writeProtocol` | string ≤ 50000 字符 | `''` | 自定义书写规范；空 = 用内置默认。文本里可用 `__MEMORY_ROOT__` 占位记忆根目录 |
+| `startupContext` | boolean | `true` | 是否注入启动摘要 |
 
 生效优先级：**配置文件（`.jinji-memory.json`）> cordis config > 内置默认**；`root` 的解析优先级仍是 **config.root > 环境变量 `DSH_JINJI_ROOT` > dsh 进程工作目录**。
 
@@ -130,21 +137,26 @@ POST /api/jinji-memory?action=config
 }
 ```
 
-## 3.1 启动时的记忆注入：摘要 + 书写规范
+## 3.1 启动时的记忆摘要注入
 
-插件在 Host 侧注册**两个** systemPrompt 动态上下文（排在沙箱/审批策略快照之后）：
+插件在 Host 侧注册一个 **systemPrompt 动态上下文**（名称 `jinji:memory-summary`，顺序 130，排在沙箱/审批策略快照之后）：最近 `maxEntries` 条日志 + 前 `maxPersonas` 条画像档案的 summary 快照，让模型开局就带着记忆。
 
-| 名称 | 顺序 | 内容 | 作用 |
-|---|---|---|---|
-| `jinji:memory-summary` | 130 | 最近 `maxEntries` 条日志 + 全部画像档案的 summary 快照 | **读**：让模型开局就带着记忆 |
-| `jinji:memory-protocol` | 135 | 记忆书写规范：何时写、日志/画像怎么写、frontmatter 约定、建档门槛 | **写**：让模型像记忆管家一样主动沉淀记忆 |
-
-- **触发**：每个新会话启动时（`agent/session-start` 事件），异步预计算一份记忆快照——最近 `maxEntries` 条日志的 summary + 前 `maxPersonas` 条画像档案的 summary；会话期间只计算一次（按会话缓存，SessionStart 语义）；
-- **根目录选择**：优先会话自己的工作目录（若其中有 `.journal/`），否则回退到插件的 `root` 配置；书写规范会把实际使用的根目录写进文本（`记忆根目录：<root>`）；
-- **约束与降级**：上下文提供器必须是同步的，而文件读取是异步的——所以采用「会话启动时异步预计算 + 提供器同步取缓存」。若首个请求发出前预计算未完成，该次请求暂无摘要；书写规范不依赖快照，始终注入；
+- **触发**：每个新会话启动时（`agent/session-start` 事件），异步预计算一份记忆快照；会话期间只计算一次（按会话缓存，SessionStart 语义）；
+- **根目录选择**：优先会话自己的工作目录（若其中有 `.journal/`），否则回退到插件的 `root` 配置；
+- **约束与降级**：上下文提供器必须是同步的，而文件读取是异步的——所以采用「会话启动时异步预计算 + 提供器同步取缓存」。若首个请求发出前预计算未完成，该次请求暂无摘要，后续组装自动补上；
 - **配置的生效时机**：提供器每次组装都读当前生效配置——在设置卡片里保存后**无需重启**，下一个新会话立即采用新值（进行中的会话保持会话开始时的快照）；
-- **关闭方式**：`startupContext: false` 两块一起关；`writeProtocolEnabled: false` 只关书写规范、保留摘要；
-- **注意**：若同时使用带同类能力的其他配置（例如另一个记忆 preset），两侧会各注入一份，建议保留其一。
+- **关闭方式**：`startupContext: false`；
+- **书写规范不在此注入**：主动书写的规则由「谨迹秘书」Agent 预设承载（见下节），普通会话的提示词不带任何书写规则。
+
+## 3.2 「谨迹秘书」Agent 预设
+
+主动书写能力 = 一个用户自选的 Agent 预设（见 [ADR-0012](design-decisions.md#adr-0012)）：
+
+- **安装**：设置卡片的「安装」按钮（或 `POST action=install-preset`）。安装走 roster 官方创作通道：复制当前 `standard` 预设 → persona 行整段替换为秘书人设（含书写规范全文与实际记忆根目录）→ 挂载校验；
+- **使用**：新建会话时在预设选择器里选「谨迹秘书」；该会话的人设段落（`deployment:persona`，order 0）携带书写规范，KV-cache 前缀稳定；
+- **自定义**：预设就是用户预设目录里的普通文本文件（`~/.dsh/.agent-presets/jinji/`），直接编辑 persona 文本即可改规则；
+- **删除**：「Agent 预设」设置页可删（它落在用户根目录，roster 允许删除）；删除不影响插件其他能力；
+- **注意**：预设复制的是安装时刻的 standard；DSH 大版本升级后想跟进，删除重装即可。
 
 ## 4. Client 侧内部契约
 

@@ -91,7 +91,7 @@
 
 ## ADR-0010：用注入的书写规范实现「主动记录」
 
-- **状态**：已接受（2026-08）
+- **状态**：已被 ADR-0012 取代（2026-08）——全局注入移除，书写规范改由 Agent 预设承载；本记录保留作为演进背景
 - **背景**：只注入摘要，AI 会读记忆但不会主动写——「读与写」缺一半。此前 jinji agent preset 用技能文件承载书写约定，preset 删除后主动记录随之消失。
 - **决策**：插件在 Host 侧再注册一个 systemPrompt 上下文 `jinji:memory-protocol`（顺序 135，排在摘要之后），把书写规范（何时写、日志/画像怎么写、frontmatter 约定、建档门槛）作为纯文本注入每个会话；写入由模型用自己的文件工具完成，插件不注册写接口、不替模型写。
 - **理由**：
@@ -112,3 +112,15 @@
   - 写入仍走 `fs` 服务（ADR-0006 的约束不破），逐字段校验后才落盘；
   - 提供器每次组装实时读生效配置，保存后新会话立即生效，免去重启。
 - **风险**：绕开了官方 settings 的分层/审计语义（覆盖标记、并发闸门都没有）；`settings.plugin.item` 槽位或 shell 共享模块表（react）在未来版本变化时卡片静默消失（按钮与面板不受影响）。
+
+## ADR-0012：书写规范从全局注入迁往 Agent 预设（用户自选）
+
+- **状态**：已接受（2026-08）
+- **背景**：ADR-0010 把书写规范作为 systemPrompt 上下文全局注入，每个会话的提示词都带一份「使用说明」——但大多数会话并不需要记东西，全局注入是噪声；用户明确希望「做成 preset 让用户自主选择」。
+- **决策**：移除 `jinji:memory-protocol` 全局上下文与 `writeProtocol` / `writeProtocolEnabled` 配置字段；书写规范改由 Agent 预设「谨迹秘书」的 persona 段落承载。预设在运行期经 roster 官方通道安装：`copy('standard', 'jinji', '谨迹秘书')` → persona 行整段替换为秘书人设（`{{model}}` / `{{cwd}}` 模板变量保留，`__MEMORY_ROOT__` 替换为实际根目录）→ 写 `preset.yml` → `standingKeyFor` 挂载校验。安装入口在设置卡片（`POST /api/jinji-memory?action=install-preset`）。
+- **理由**：
+  - preset 是 DSH 原生的「按需选择能力」机制：用户建新会话时显式选择，普通会话的提示词保持干净；
+  - bundle 无法声明式地带一个 preset——patch 的 `!!js` 表达式在 profile 目录语境求值，拿不到包内路径；roster 的 `copy()` 是唯一官方创作通道，且复制自当前 standard，与宿主版本天然兼容；
+  - 预设落在用户 preset 根目录（普通文本文件）：可直接编辑规则、可在「Agent 预设」页删除，完全可逆；
+  - persona 段落在 agent 生命周期内前缀稳定（dsh-persona 的设计），KV-cache 友好。
+- **风险**：preset 复制的是安装时刻的 standard——DSH 大版本升级 standard 后副本不会自动跟进（删除重装即可）；卸载插件不会移除已安装的预设（它脱离插件也能运行，但规则文本失去更新来源）；standard 的 persona 行结构变化（改 id 或删除该行）会让安装报错而非静默装错。

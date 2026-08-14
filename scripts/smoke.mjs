@@ -3,8 +3,9 @@
  *
  * 服务端部分：在临时目录里造一个最小 .journal 日志库，驱动
  *   - 数据路由：index 计数、read 全文、路径越界拒绝；
- *   - 启动注入：摘要快照、书写规范、按会话缓存；
- *   - 配置链路：默认值、POST 校验、文件持久化、画像条数截断、开关即时生效。
+ *   - 启动注入：摘要快照、按会话缓存（书写规范不做全局注入，由预设承载）；
+ *   - 配置链路：默认值、POST 校验、文件持久化、画像条数截断、开关即时生效；
+ *   - 预设安装：copy standard → 改写 persona → preset.yml → 重复安装幂等。
  * 浏览器部分：mock window.__ModuleLoader__ 驱动 factory 物化，
  *   验证导出形状与设置卡片注册（slots 缺失时静默跳过）。
  */
@@ -54,6 +55,32 @@ const fsMock = {
   contains: (p, c) => c.key === p.key || c.key.startsWith(p.key + '/'),
 }
 
+// roster mock：copy 在临时目录里造一个仿 standard 的 preset
+const PRESET_DIR = join(ROOT, 'presets/jinji')
+const FAKE_STANDARD = `# standard preset
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      You are a coding agent powered by the {{model}} model.
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+`
+let presetInstalled = false
+const rosterMock = {
+  list: async () => (presetInstalled ? [{ id: 'jinji', path: join(PRESET_DIR, 'agent.cordis.yml') }] : []),
+  copy: async () => {
+    mkdirSync(PRESET_DIR, { recursive: true })
+    writeFileSync(join(PRESET_DIR, 'agent.cordis.yml'), FAKE_STANDARD)
+    presetInstalled = true
+  },
+  resolve: async (id) => ({ id, path: join(PRESET_DIR, 'agent.cordis.yml') }),
+  standingKeyFor: async () => 'scope-key',
+}
+
 const { apply } = await import('../lib/index.js')
 const eventHandlers = {}
 const injected = []
@@ -62,6 +89,7 @@ const ctx = {
   effect: (cb) => cb(),
   on: (name, fn) => { eventHandlers[name] = fn },
   inject: (deps, cb) => { injected.push({ deps, cb }) },
+  get: (n) => (n === 'agentPresets' ? rosterMock : undefined),
   webServer: { register: (r) => { route = r } },
   fs: fsMock,
 }
@@ -71,11 +99,11 @@ const contexts = []
 for (const entry of injected) {
   if (entry.deps.includes('systemPrompt')) entry.cb({ systemPrompt: { context: (c) => contexts.push(c) } })
 }
-const byName = Object.fromEntries(contexts.map((c) => [c.name, c]))
 
 let captured = {}
 const res = { writeHead: (s, h) => { captured = { status: s, headers: h } }, end: (b) => { captured.body = b } }
 const get = (url) => route.handler({ method: 'GET', url }, res)
+const postTo = (url) => route.handler({ method: 'POST', url }, res)
 function post(obj) {
   const body = JSON.stringify(obj)
   return route.handler(
@@ -101,36 +129,33 @@ assert('read 全文', json().ok === true && json().text.length > 0)
 await get('/api/jinji-memory?action=read&rel=../../etc/passwd')
 assert('越界拒绝', json().ok === false)
 
-// ── 启动注入（默认配置） ────────────────────────────────────────────────
-console.log('启动注入（默认配置）')
+// ── 启动注入（默认配置，仅摘要） ────────────────────────────────────────
+console.log('启动注入（默认配置，仅摘要）')
 const agentA = { session: { header: { cwd: ROOT } } }
 assert('已注册 session-start 监听', typeof eventHandlers['agent/session-start'] === 'function')
 assert('已声明 systemPrompt 依赖', injected.some((i) => i.deps.includes('systemPrompt')))
-assert('注册了摘要与书写规范两个上下文', byName['jinji:memory-summary'] !== undefined && byName['jinji:memory-protocol'] !== undefined)
-assert('书写规范排在摘要之后', byName['jinji:memory-protocol'].order > byName['jinji:memory-summary'].order)
-assert('预计算前摘要为空', byName['jinji:memory-summary'].text({ agent: agentA }) === '')
-assert('预计算前书写规范已注入', byName['jinji:memory-protocol'].text({ agent: agentA }).includes('主动'))
+assert('只注册摘要上下文（书写规范不再全局注入）', contexts.length === 1 && contexts[0].name === 'jinji:memory-summary', contexts.map((c) => c.name))
+assert('预计算前摘要为空', contexts[0].text({ agent: agentA }) === '')
 eventHandlers['agent/session-start']({ agent: agentA, source: 'fresh' })
 await new Promise((r) => setTimeout(r, 200))
-const snapshotA = byName['jinji:memory-summary'].text({ agent: agentA })
+const snapshotA = contexts[0].text({ agent: agentA })
 assert('快照包含日志摘要', snapshotA.includes('最近') && snapshotA.length > 0)
 assert('快照包含画像摘要', snapshotA.includes('画像档案'))
 assert('默认带全部画像', snapshotA.includes('1 产品 / 3 人物') && !snapshotA.includes('仅列出'))
-assert('书写规范带上了实际记忆根目录', byName['jinji:memory-protocol'].text({ agent: agentA }).includes(ROOT))
-assert('无 agent 时摘要为空', byName['jinji:memory-summary'].text({}) === '')
+assert('无 agent 时摘要为空', contexts[0].text({}) === '')
 
 // ── 配置链路 ────────────────────────────────────────────────────────────
 console.log('配置链路')
 await get('/api/jinji-memory?action=config')
 const cfg = json()
 assert('config 返回默认配置', cfg.ok === true && cfg.config.maxEntries === 20 && cfg.config.maxPersonas === 30)
-assert('config 携带内置书写规范', typeof cfg.protocolBuiltin === 'string' && cfg.protocolBuiltin.includes('主动'))
+assert('config 携带预设安装状态', cfg.preset && cfg.preset.available === true && cfg.preset.installed === false)
 
 await post({ maxEntries: 99999 })
 assert('越界数值被拒绝', json().ok === false)
-await post({ nope: 1 })
-assert('未知字段被拒绝', json().ok === false)
-await post({ maxEntries: 5, maxPersonas: 2, writeProtocol: '自定义规范：写到 __MEMORY_ROOT__' })
+await post({ writeProtocol: 'x' })
+assert('已移除的字段被拒绝', json().ok === false)
+await post({ maxEntries: 5, maxPersonas: 2 })
 const saved = json()
 assert('保存配置生效', saved.ok === true && saved.config.maxEntries === 5 && saved.config.maxPersonas === 2)
 assert('配置文件已写入磁盘', JSON.parse(readFileSync(join(ROOT, '.jinji-memory.json'), 'utf8')).maxPersonas === 2)
@@ -138,14 +163,23 @@ assert('配置文件已写入磁盘', JSON.parse(readFileSync(join(ROOT, '.jinji
 const agentB = { session: { header: { cwd: ROOT } } }
 eventHandlers['agent/session-start']({ agent: agentB, source: 'fresh' })
 await new Promise((r) => setTimeout(r, 200))
-const snapshotB = byName['jinji:memory-summary'].text({ agent: agentB })
-assert('画像条数按配置截断', snapshotB.includes('仅列出前 2 条'), snapshotB.slice(0, 80))
-assert('自定义书写规范生效', byName['jinji:memory-protocol'].text({ agent: agentB }).startsWith('自定义规范：写到 ' + ROOT))
-
-await post({ writeProtocolEnabled: false })
-assert('书写规范开关即时生效', byName['jinji:memory-protocol'].text({ agent: agentB }) === '')
+assert('画像条数按配置截断', contexts[0].text({ agent: agentB }).includes('仅列出前 2 条'))
 await post({ startupContext: false })
-assert('总开关关闭后摘要为空', byName['jinji:memory-summary'].text({ agent: agentB }) === '')
+assert('总开关关闭后摘要为空', contexts[0].text({ agent: agentB }) === '')
+
+// ── 预设安装 ────────────────────────────────────────────────────────────
+console.log('预设安装')
+await postTo('/api/jinji-memory?action=install-preset')
+const installed = json()
+assert('安装预设成功', installed.ok === true && installed.already === false)
+const comp = readFileSync(join(PRESET_DIR, 'agent.cordis.yml'), 'utf8')
+assert('persona 行改写为秘书人设', comp.includes('谨迹秘书') && comp.includes('记忆书写规范') && comp.includes('{{model}}'))
+assert('原有工具行保持完整', comp.includes('agent-instructions') && !comp.includes('coding agent powered'))
+assert('preset.yml 已写入', readFileSync(join(PRESET_DIR, 'preset.yml'), 'utf8').includes('谨迹秘书'))
+await postTo('/api/jinji-memory?action=install-preset')
+assert('重复安装幂等', json().ok === true && json().already === true)
+await get('/api/jinji-memory?action=config')
+assert('安装后状态回读为已安装', json().preset.installed === true)
 
 // ── 浏览器部分 ──────────────────────────────────────────────────────────
 console.log('浏览器部分')

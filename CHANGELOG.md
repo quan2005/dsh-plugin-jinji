@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-14
+
+### Removed（破坏性变更）
+
+- 移除书写规范的全局注入（`jinji:memory-protocol` 上下文）与 `writeProtocol` / `writeProtocolEnabled` 配置字段——书写规则不再塞进每个会话的提示词（ADR-0012；`.jinji-memory.json` 里残留的这两个键会被静默忽略）
+
+### Added
+
+- 「谨迹秘书」Agent 预设：设置卡片一键安装（roster 官方 `copy` 通道复制当前 standard + persona 行整段替换为秘书人设 + `standingKeyFor` 挂载校验）；新建会话选用该预设即获得主动书写能力，普通会话不受影响
+- 数据路由新增 `POST /api/jinji-memory?action=install-preset`；`GET action=config` 返回预设安装状态（`preset.available/installed`）
+- 自检：smoke 33 断言，新增预设安装链路（persona 改写、其余行保持完整、重复安装幂等、状态回读）
+
+### Changed
+
+- 设置卡片：书写规范开关 / 自定义文本框替换为「Agent 预设『谨迹秘书』」安装行
+- 文档：api.md 新增 3.2 预设章节、architecture.md 2.7 改写为预设承载书写规范、ADR-0010 标记被 ADR-0012 取代
+
 ## [0.4.4] - 2026-08-14
 
 ### Changed
