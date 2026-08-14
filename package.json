@@ -1,0 +1,44 @@
+{
+  "name": "dsh-plugin-jinji",
+  "version": "0.1.0",
+  "description": "谨迹（Jinji）记忆面板：DeepSeek Harness 双半 UI 插件 —— 侧栏「记忆」入口 + 日志/画像浏览面板（零构建）",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "journal",
+    "memory",
+    "jinji",
+    "journalclaw"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quan2005/dsh-plugin-jinji.git"
+  },
+  "bugs": {
+    "url": "https://github.com/quan2005/dsh-plugin-jinji/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  }
+}
