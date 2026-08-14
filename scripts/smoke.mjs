@@ -74,8 +74,8 @@ await route.handler({ method: 'GET', url: '/api/jinji-memory?action=read&rel=../
 const bad = JSON.parse(captured.body)
 assert('越界拒绝', bad.ok === false)
 
-// ── 启动时的记忆摘要注入 ───────────────────────────────────────────────
-console.log('启动摘要注入')
+// ── 启动注入：记忆摘要（读） + 书写规范（写） ───────────────────────
+console.log('启动注入')
 const fakeAgent = { session: { header: { cwd: ROOT } } }
 assert('已注册 session-start 监听', typeof eventHandlers['agent/session-start'] === 'function')
 assert('已声明 systemPrompt 依赖', injected.some((i) => i.deps.includes('systemPrompt')))
@@ -83,14 +83,21 @@ const contexts = []
 for (const entry of injected) {
   if (entry.deps.includes('systemPrompt')) entry.cb({ systemPrompt: { context: (c) => contexts.push(c) } })
 }
-assert('已注册上下文提供器', contexts.length === 1 && contexts[0].name === 'jinji:memory-summary')
-assert('预计算前为空', contexts[0].text({ agent: fakeAgent }) === '')
+const byName = Object.fromEntries(contexts.map((c) => [c.name, c]))
+assert('注册了摘要与书写规范两个上下文', byName['jinji:memory-summary'] !== undefined && byName['jinji:memory-protocol'] !== undefined)
+assert('书写规范排在摘要之后', byName['jinji:memory-protocol'].order > byName['jinji:memory-summary'].order)
+assert('预计算前摘要为空', byName['jinji:memory-summary'].text({ agent: fakeAgent }) === '')
+assert('预计算前书写规范已注入', byName['jinji:memory-protocol'].text({ agent: fakeAgent }).includes('主动'))
 eventHandlers['agent/session-start']({ agent: fakeAgent, source: 'fresh' })
 await new Promise((r) => setTimeout(r, 200)) // 等异步预计算完成
-const snapshot = contexts[0].text({ agent: fakeAgent })
+const snapshot = byName['jinji:memory-summary'].text({ agent: fakeAgent })
 assert('快照包含日志摘要', snapshot.includes('最近') && snapshot.length > 0)
 assert('快照包含画像摘要', snapshot.includes('画像档案'))
-assert('无 agent 时返回空', contexts[0].text({}) === '')
+const protocol = byName['jinji:memory-protocol'].text({ agent: fakeAgent })
+assert('书写规范包含路径与 summary 约定', protocol.includes('.journal/memory/') && protocol.includes('summary'))
+assert('书写规范带上了实际记忆根目录', protocol.includes(ROOT))
+assert('无 agent 时摘要为空', byName['jinji:memory-summary'].text({}) === '')
+assert('无 agent 时书写规范为空', byName['jinji:memory-protocol'].text({}) === '')
 
 // ── Client 半 ──────────────────────────────────────────────────────────────
 console.log('Client 半')
