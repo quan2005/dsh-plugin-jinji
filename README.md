@@ -40,9 +40,9 @@ dsh plugin --profile web add github:quan2005/dsh-plugin-jinji
 
 | 文档 | 讲什么 |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | 这个插件怎么分成「服务端部分」和「浏览器部分」、数据怎么流动、用到了哪些官方接口，配图 |
+| [docs/architecture.md](docs/architecture.md) | 插件怎么分成「服务端部分」和「浏览器部分」、数据怎么流动、官方接口；以及**记忆系统的核心架构（summary 分层加载）**，配图 |
 | [docs/api.md](docs/api.md) | 后台接口的完整约定：请求、响应字段、配置项、兼容边界 |
-| [docs/design-decisions.md](docs/design-decisions.md) | 每个重要取舍的记录：为什么这么做、理由、有什么风险（ADR-0001 ~ 0006） |
+| [docs/design-decisions.md](docs/design-decisions.md) | 每个重要取舍的记录：为什么这么做、理由、有什么风险（ADR-0001 ~ 0007，含记忆系统核心架构 ADR-0007） |
 | [docs/development.md](docs/development.md) | 怎么改代码、怎么调试、改完怎么验证、前人踩过的坑 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 想贡献代码时的规矩 |
 | [CHANGELOG.md](CHANGELOG.md) | 每个版本改了什么 |

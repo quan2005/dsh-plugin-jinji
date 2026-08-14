@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-jinji",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "把「记忆」带进 DeepSeek Harness：极简文本记忆系统（Markdown 日志 + 画像档案），大模型为核心驱动，一个插件即可在网页左侧栏浏览记忆。无需安装其他软件，无需编译，无第三方依赖。",
   "license": "MIT",
   "type": "module",
