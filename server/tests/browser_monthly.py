@@ -44,23 +44,21 @@ metadata:
             }""")
             page.goto(base)
             page.locator('.tile').first.wait_for()
-            assert page.locator('.tile').count() == 6
+            assert page.locator('.tile').count() == 5
+            assert page.locator('.mainline').count() == 0
             assert page.locator('[href="#/c/artifacts"]').count() == 0
             assert page.locator('#main').get_by_text('旧历史', exact=True).count() == 0
             assert not page.url.endswith('old.md')
-            print('PASS: six categories, no artifacts entrance; old state is not restored')
+            print('PASS: five categories, no tag mainline or artifacts entrance; old state is not restored')
             page.goto(base + '/#/c/artifacts')
             page.locator('.tile').first.wait_for()
             assert page.url.endswith('#/')
-            assert '进入工作专题' in page.locator('.mainline[href="#/c/focus"]').inner_text()
-            page.locator('.tile[href="#/c/focus"]').click()
+            page.locator('.tile[href="#/c/journal"]').click()
             page.locator('.tl li').first.wait_for()
-            assert page.locator('.tl li').count() == 1
-            assert '产品-评审' in page.locator('.tl').inner_text()
-            page.locator('.tl .tt').click()
+            page.locator('.tl .tt').filter(has_text='产品-评审').click()
             page.locator('.doc-title').wait_for()
-            assert '#/c/focus/doc/' in page.url
-            assert '工作' in page.locator('.crumbs').inner_text()
+            assert '#/c/journal/doc/' in page.url
+            assert '日志流水' in page.locator('.crumbs').inner_text()
             assert page.locator('[data-act=doc-view]').all_text_contents() == ['原文', '预览', 'HTML']
             page.locator('[data-view=source][data-act=doc-view]').click()
             page.locator('.src-view .src').wait_for()
@@ -126,7 +124,7 @@ metadata:
 
             page.goto(base + '/#/c/experts')
             page.locator('.hero').wait_for()
-            assert page.locator('[data-act=mark-expert]').count() == 0
+            assert page.locator('.skill-tile [data-act=mark-expert]').count() == 3
             assert page.locator('.expert.card').count() == 2
             assert page.locator('#side-list .row[data-key="e:local-expert"]').count() == 0
             assert '工具技能' not in page.locator('#main').inner_text()
@@ -286,7 +284,7 @@ metadata:
             assert page.locator('.favs .fav-row').first.inner_text().startswith('场') or '场景专家' in page.locator('.favs .fav-row').first.inner_text()
             page.locator('.favs .fav-row').filter(has_text='产品-评审').locator('.fav-link').click()
             page.locator('.doc-title').wait_for()
-            assert '#/c/focus/doc/' in page.url
+            assert '#/c/journal/doc/' in page.url
             page.goto(base + '/#/')
             page.locator('.favs .fav-row').first.wait_for()
             page.route('**/api/favorite', lambda route: route.fulfill(status=500, content_type='application/json', body='{"error":"磁盘只读"}'))
@@ -322,6 +320,32 @@ metadata:
             page.locator('.ex-lead').wait_for()
             assert '#/c/experts/s/global-tool' in page.url
             print('PASS: search deduplicates tagged logs, excludes artifacts and finds other skills')
+
+            # 其他技能 → 标为专家：两次点击才写入，只加 metadata.kind 一行；无法自动改的写法给出错误且不改文件。
+            page.keyboard.press('Escape')
+            top_skill = module.SKILL_ROOTS[0] / 'top-level-kind/SKILL.md'
+            top_before = top_skill.read_text('utf-8')
+            page.goto(base + '/#/c/experts')
+            tile = page.locator('.skill-tile').filter(has_text='top-level-kind')
+            tile.hover()
+            mark = tile.locator('[data-act=mark-expert]')
+            mark.click()
+            assert mark.inner_text() == '确认标为专家？' and page.url.endswith('#/c/experts')
+            assert top_skill.read_text('utf-8') == top_before
+            mark.click()
+            page.locator('.expert.card').nth(2).wait_for()
+            assert page.locator('.skill-tile').filter(has_text='top-level-kind').count() == 0
+            assert top_skill.read_text('utf-8') == top_before.replace('\n---\n# ', '\nmetadata:\n  kind: 专家\n---\n# ', 1)
+            bad_skill = module.SKILL_ROOTS[0] / 'string-metadata/SKILL.md'
+            bad_before = bad_skill.read_text('utf-8')
+            page.goto(base + '/#/c/experts/s/string-metadata')
+            detail_mark = page.locator('.doc-head [data-act=mark-expert]')
+            detail_mark.click()
+            detail_mark.click()
+            page.locator('.toast').filter(has_text='标记失败').wait_for()
+            assert detail_mark.inner_text() == '标为专家' and detail_mark.is_enabled()
+            assert bad_skill.read_text('utf-8') == bad_before and '#/c/experts/s/string-metadata' in page.url
+            print('PASS: other skills can be marked as experts with a two-step confirm; unsupported metadata is left untouched')
             assert errors == [], errors
             offline = browser.new_page()
             offline.route('https://**/*', lambda route: route.abort())

@@ -77,6 +77,7 @@ const ICON = {
   narrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h7M14 12h7"/><path d="m7 8 4 4-4 4"/><path d="m17 8-4 4 4 4"/></svg>',
   star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>',
   starOn: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
 }
 
@@ -231,7 +232,9 @@ async function markExpert(btn) {
     if (!r.ok) throw new Error(j.error)
     toast(`已把 <code>${esc(id)}</code> 标为专家，可在 SKILL.md 里补 type、domains、triggers`, 4200)
     S.idx = await api('/api/index?refresh=1')
-    renderSide(); renderMain()
+    // 技能详情页的路由随之失效：转到同一 skill 的专家页
+    if (S.route.mode === 'skill' && S.route.id === id) location.hash = href({ mode: 'expert', cat: 'experts', id })
+    else { renderSide(); renderMain() }
   } catch (err) {
     toast('标记失败：' + esc(err.message), 4200)
     btn.disabled = false; btn.classList.remove('armed'); btn.textContent = '标为专家'
@@ -380,6 +383,7 @@ function paintBridge() {
 function parseHash() {
   const h = dec(location.hash.replace(/^#\/?/, ''))
   if (!h) return { mode: 'home', cat: null }
+  if (h === 'setup') return { mode: 'setup', cat: null }
   const m = h.match(/^c\/([^/]+)(?:\/(doc|book|read|e|s)\/(.+))?$/)
   if (!m) return { mode: 'home', cat: null }
   const [, cat, mode, rest] = m
@@ -391,6 +395,7 @@ function parseHash() {
 }
 function href(r) {
   if (r.mode === 'home') return '#/'
+  if (r.mode === 'setup') return '#/setup'
   if (r.mode === 'overview') return `#/c/${r.cat}`
   if (r.mode === 'expert') return `#/c/${r.cat}/e/${enc(r.id)}`
   if (r.mode === 'skill') return `#/c/${r.cat}/s/${enc(r.id)}`
@@ -416,7 +421,7 @@ async function route() {
   S.route = r
   if (r.mode === 'doc' && r.path) pushHistory(r)
   const app = $('#app')
-  app.dataset.view = r.mode === 'home' ? 'home' : 'cat'
+  app.dataset.view = r.mode === 'home' || r.mode === 'setup' ? 'home' : 'cat'
   app.classList.toggle('focus', r.mode === 'read' || (r.mode === 'doc' && store.get('focus', false) && /\.html?$/.test(r.path || '')))
   app.classList.remove('side-open')
   app.style.cssText = catVar(r.cat)
@@ -457,6 +462,7 @@ function renderRail() {
     <button class="rail-tool" data-act="side" title="收起/展开列表（[）">${ICON.side}</button>
     ${hostThemed ? '' : `<button class="rail-tool" data-act="theme" title="宣纸/墨（t）">${ICON.theme}</button>`}
     <button class="rail-tool" data-act="refresh" title="重新索引（r）">${ICON.refresh}</button>
+    <a class="rail-tool ${S.route.mode === 'setup' ? 'active' : ''}" href="#/setup" title="设置 journal 位置">${ICON.gear}</a>
     <span class="bridge-dot" id="bridge-dot"></span>`
   paintBridge()
 }
@@ -613,6 +619,7 @@ function renderMain() {
   main.scrollTop = 0
   S.doc = null
   if (r.mode === 'home') return renderHome(main)
+  if (r.mode === 'setup') return renderSetup(main)
   const cat = catById(r.cat)
   if (!cat) { main.innerHTML = `<div class="err">没有这个分类：${esc(r.cat)}</div>`; return }
   if (r.mode === 'overview') return renderOverview(main, cat)
@@ -629,7 +636,6 @@ function renderHome(main) {
   const d = new Date()
   const week = '日一二三四五六'[d.getDay()]
   const hist = store.get('history:v2', []).slice(0, 8)
-  const featured = idx.categories.find(c => c.featured)
   const latest = cid => {
     if (cid === 'experts') return idx.experts.experts.slice(0, 3).map(e => e.name)
     const lst = (idx.items[cid] || []).filter(x => !x.archived).sort((a, b) => b.mtime - a.mtime)
@@ -638,11 +644,11 @@ function renderHome(main) {
   main.innerHTML = `<div class="view scroll" id="scroller"><div class="pad wide">
     <header class="home-head">
       <div><h1><span class="seal">谨</span>谨迹书房</h1>
-        <div class="date">${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 · 星期${week} · 只读阅读，内容按 journal 规范维护</div></div>
+        <div class="date">${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 · 星期${week} · 只读阅读，内容按 journal 规范维护 · <a href="#/setup">设置</a></div></div>
       <div class="search-trigger" data-act="search">${ICON.search.replace('<svg', '<svg width="18" height="18"')}<span>搜索全部入口的标题与全文</span><kbd>/</kbd></div>
     </header>
+    ${setupHint(idx)}
     ${favoritesPanel(idx)}
-    ${featured ? `<a class="mainline" href="#/c/${featured.id}" style="${catVar(featured.id)}"><span class="seal">${esc(featured.glyph)}</span><div><b>${esc(featured.tagline || featured.name)}</b><br><span>${featured.count} 条日志${featured.tags?.length ? ` · 按 tags 中的「${esc(featured.tags.join('、'))}」精确筛选` : ''}</span></div><span class="go">进入${esc(featured.name)} →</span></a>` : ''}
     <div class="tiles">
       ${idx.categories.map((c, i) => `<a class="tile" href="#/c/${c.id}" style="${catVar(c.id)}" data-glyph="${esc(c.glyph)}">
         <div class="tile-top"><span class="seal">${esc(c.glyph)}</span><h3>${esc(c.name)}</h3><span class="num">${c.count}</span></div>
@@ -660,6 +666,84 @@ function renderHome(main) {
       </section>
     </div>
   </div></div>`
+}
+function setupHint(idx) {
+  const st = idx.setup || {}
+  if (st.initialized || (idx.items.journal || []).length) return ''
+  const why = st.exists ? '这个目录还没有日志，也没有 AGENTS.md。' : '这个目录不存在。'
+  return `<section class="panel setup-hint"><h2>先设置笔记库 <small>${esc(idx.journal)}</small></h2>
+    <p>${why}到设置页选择已有的 journal，或在一个空目录里生成起步骨架。</p>
+    <a class="btn primary" href="#/setup">打开设置</a></section>`
+}
+
+/* 设置页：选 journal 位置；空目录可一键生成起步骨架。保存后服务原地重启并重新索引。 */
+async function renderSetup(main) {
+  const cur = await api('/api/setup').catch(e => ({ error: e.message }))
+  main.innerHTML = `<div class="view scroll" id="scroller"><div class="pad">
+    <header class="home-head"><div><h1><span class="seal">设</span>设置</h1>
+      <div class="date">配置写在 <code>${esc(cur.config_file || '')}</code>，不进 journal</div></div></header>
+    <section class="panel setup">
+      <h2>journal 位置</h2>
+      <p class="muted setup-cur">当前：<code>${esc(cur.current || cur.error || '')}</code></p>
+      ${cur.locked ? '<p class="muted">位置由 DSH 插件配置（<code>journal</code> 字段）指定，这里只能初始化当前目录；要换位置，请改 profile 的 <code>cordis.patch.yml</code>。</p>' : ''}
+      <div class="setup-row"><input id="setup-path" value="${esc(cur.current || '')}" spellcheck="false" autocomplete="off" ${cur.locked ? 'readonly' : ''} placeholder="~/Documents/journal">
+        <button class="btn" id="setup-check">检查</button></div>
+      <p class="setup-state" id="setup-state"></p>
+      <label class="setup-init"><input type="checkbox" id="setup-init"> 在这个空目录里生成起步骨架（AGENTS.md、档案模板、一篇说明日志）</label>
+      <div class="setup-actions"><button class="btn primary" id="setup-save">保存</button></div>
+    </section>
+    <section class="panel"><h2>书房读什么</h2>
+      <p class="muted">日志 <code>yyMM/DD-标题.md</code>；画像 <code>identity/*.md</code>（frontmatter 写 <code>type: person</code> 或 <code>product</code>）；书卡 <code>type: book</code>；专家来自 <code>~/.agents/skills</code>。除初始化外，书房不写 journal。</p>
+    </section>
+  </div></div>`
+  const input = $('#setup-path'), box = $('#setup-init'), save = $('#setup-save'), state = $('#setup-state')
+  let checked = null
+  const paint = st => {
+    checked = st
+    const msg = st.error ? st.error
+      : !st.exists ? '目录不存在：勾选初始化会新建并生成骨架。'
+      : st.initialized ? '已是谨迹笔记库（有 AGENTS.md）。'
+      : st.empty ? '空目录：可以生成起步骨架。'
+      : '已有内容、没有 AGENTS.md：书房照常读取，不能初始化。'
+    state.textContent = msg
+    state.classList.toggle('bad', !!st.error)
+    box.disabled = !!st.error || !st.empty
+    if (box.disabled) box.checked = false
+    save.disabled = !!st.error || (cur.locked && !box.checked)
+  }
+  const check = async () => {
+    try { paint(await api('/api/setup?path=' + enc(input.value.trim()))) } catch (e) { paint({ error: e.message }) }
+  }
+  $('#setup-check').addEventListener('click', check)
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') check() })
+  input.addEventListener('input', () => { checked = null; state.textContent = ''; save.disabled = false; box.disabled = false })
+  box.addEventListener('change', () => { if (checked) paint(checked) })
+  save.addEventListener('click', async () => {
+    if (!checked) await check()
+    if (checked?.error) return
+    save.disabled = true; save.textContent = '保存中…'
+    try {
+      const r = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ journal: input.value.trim(), init: box.checked }) })
+      const j = await r.json()
+      if (!r.ok) throw new Error(j.error)
+      if (j.created.length) toast(`已生成 ${j.created.length} 个文件`, 3200)
+      if (j.restart) { await waitForJournal(j.journal); toast('已切换到 <code>' + esc(j.journal) + '</code>', 3200) }
+      S.idx = await api('/api/index?refresh=1')
+      go({ mode: 'home' })
+    } catch (e) {
+      toast('保存失败：' + esc(e.message), 4200)
+      save.disabled = false; save.textContent = '保存'
+    }
+  })
+  if (cur.current) check()
+}
+async function waitForJournal(journal) {
+  toast('正在切换笔记库…', 8000)
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 250))
+    try { if ((await api('/api/ping')).journal === journal) return } catch {}
+  }
+  throw new Error('服务没有在 10 秒内切换到新目录')
 }
 function favoritesPanel(idx) {
   const favs = idx.favorites || []
@@ -804,9 +888,10 @@ function expertCard(e) {
     <div class="cs">${esc(e.skill_info.description)}</div>
   </a>`
 }
+const markBtn = (k, cls = 'sm') => k.writable ? `<button class="btn mark ${cls}" data-act="mark-expert" data-id="${esc(k.id)}" title="在 SKILL.md 的 frontmatter 写入 metadata.kind: 专家">标为专家</button>` : ''
 function skillTile(k) {
   return `<a class="skill-tile" href="${href({ mode: 'skill', cat: 'experts', id: k.id })}">
-    <span class="sn">${esc(k.id)}${favBtn(k.path, 'sm icon')}</span><span class="sd" title="${esc(k.description)}">${esc(k.description || '没有描述')}</span>
+    <span class="sn">${esc(k.id)}<span>${markBtn(k)}${favBtn(k.path, 'sm icon')}</span></span><span class="sd" title="${esc(k.description)}">${esc(k.description || '没有描述')}</span>
     <span class="sm">${k.files} 个文件${k.invocable ? '' : ' · 仅模型调用'}</span></a>`
 }
 function ovExperts(cat) {
@@ -1187,7 +1272,7 @@ async function renderSkill(main, id) {
   main.innerHTML = skillPageShell(cat, {
     crumb: '其他技能',
     title: `<span class="ex-seal sk">⚙</span><span class="ex-tt"><span>${esc(k.id)}</span>${k.name !== k.id ? `<small>${esc(k.name)}</small>` : ''}</span>`,
-    actions: wideBtn() + favBtn(k.path, '') + citeBtn(k.path, '引用到会话'),
+    actions: wideBtn() + markBtn(k, '') + favBtn(k.path, '') + citeBtn(k.path, '引用到会话'),
     meta: `<span class="chip">技能</span>${k.invocable ? '' : '<span class="chip">仅模型调用</span>'}<span class="muted">${esc(k.root)}</span>`,
     lead: `<section class="ex-lead"><p class="ex-desc">${esc(k.description || '没有描述')}</p></section>`,
     files: k.files, path: k.path,

@@ -90,7 +90,7 @@
 
 ### 数据与网络边界
 
-- journal 内容保持只读。归档、收藏保存在 journal 外，按 journal 路径隔离；不得通过维护、测试或迁移把状态写回真实笔记库。
+- journal 内容保持只读。唯一例外是设置页初始化（`POST /api/setup`，`init: true`）：只在目录不存在或为空时，从 `starter/journal` 逐个文件独占创建，已存在的文件不会被覆盖。归档、收藏保存在 journal 外，按 journal 路径隔离；不得通过维护、测试或迁移把状态写回真实笔记库。
 - “只读”针对 journal，并非服务绝不写文件。服务还允许用户显式操作库外技能的 `metadata.kind` / `metadata.name`。这不是维护任务可以修改用户全局技能的授权。
 - Python 服务监听 `127.0.0.1`。DSH 的两个代理路由先调用 `connection.requestRejection(req)`，保留 Host/Origin 检查与浏览器鉴权；不能通过取消鉴权修复 401/403。
 - DSH 的鉴权路由不意味着 Python 端口也受 DSH 登录保护。不要将阅读器改为监听公网，也不要为了调试开放任意 CORS 或扩大可读路径。
@@ -157,6 +157,7 @@ Inspect 是只读发现工具，不是插件代码可以调用的业务 Service�
 |---|---|
 | [Host](<../dsh-plugin/lib/host.js>)、[Client](<../dsh-plugin/lib/client.js>) | 从仓库根目录运行 `npm --prefix dsh-plugin run check`；确认 profile 的安装来源指向当前仓库；在获得授权后，通过插件管理器禁用并重新启用准确 bundle，让 DSH 重新加载；仍保留旧页面状态时再刷新 |
 | [插件清单](<../dsh-plugin/package.json>)、[组合层 patch](<../dsh-plugin/cordis.patch.yml>) | 核对 bundle/模块依赖及配置结构后，通过当前插件管理流程重新应用；需要重新安装还是重启，以 profile 类型和管理结果为准 |
+| 设置页保存新的 journal 位置 | 服务写本地配置后用 `os.execv` 原地重启（PID 不变，DSH 持有的子进程句柄仍有效）；`JINJI_JOURNAL` 由环境或 DSH 插件配置指定时拒绝换位置，只能初始化当前目录 |
 | [Python 服务](<../server/server.py>)、本地配置 `server/wiki.config.json` | 重启实际提供服务的 Python 进程；先确认进程所有者和 journal，不要仅按端口杀任意进程；复用外部服务时，单独重载 DSH 插件不保证更新 Python |
 | [页面脚本](<../server/static/app.js>)、[样式](<../server/static/app.css>)、[HTML 主题桥](<../server/static/frame-theme.js>)、[页面入口](<../server/static/index.html>) | 刷新阅读器 iframe 或所在 DSH 页面；通常无需重启 Python |
 

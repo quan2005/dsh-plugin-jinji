@@ -7,17 +7,6 @@
   "extra_roots": [],
   "categories": [
     {
-      "id": "focus",
-      "name": "工作专题",
-      "glyph": "专",
-      "kind": "timeline",
-      "tagline": "日志流水 · tags 包含「工作」",
-      "tags": [
-        "工作"
-      ],
-      "featured": true
-    },
-    {
       "id": "people",
       "name": "人物画像",
       "glyph": "人",

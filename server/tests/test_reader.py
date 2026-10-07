@@ -1,6 +1,8 @@
 """Run: python3 -m unittest discover -s server/tests -v"""
+from datetime import date
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -8,6 +10,7 @@ import unittest
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
+from unittest.mock import patch
 from fixtures import make_reader
 
 
@@ -49,31 +52,15 @@ class ReaderTests(unittest.TestCase):
         self.assertTrue(people[1]['archived'])
         self.assertEqual(self.idx['items']['products'][0]['display'], '阅读器')
 
-    def test_six_categories_without_artifact_or_special_directory_index(self):
-        self.assertEqual([c['id'] for c in self.idx['categories']], ['focus', 'people', 'products', 'shelf', 'journal', 'experts'])
-        self.assertEqual([c['id'] for c in self.idx['categories'] if c.get('featured')], ['focus'])
+    def test_five_categories_without_artifact_or_special_directory_index(self):
+        self.assertEqual([c['id'] for c in self.idx['categories']], ['people', 'products', 'shelf', 'journal', 'experts'])
+        self.assertEqual(self.idx['categories'][3], {'id': 'journal', 'name': '日志流水', 'glyph': '日', 'kind': 'timeline', 'tagline': '按记录日期排列，只读不改', 'count': 3, 'archived': 0})
         self.assertNotIn('artifacts', self.idx['items'])
         self.assertEqual(self.idx['items']['experts'], [])
         paths = [x['path'] for rows in self.idx['items'].values() for x in rows]
         self.assertFalse(any('/raw/' in p or p.startswith(('.journal/', '研究/')) for p in paths))
         self.assertFalse(any('secret.md' in p or '/06-工作大数据/' in p or '/06-专家智库/' in p for p in paths))
         self.assertTrue(self.m.resolve_id('2610/06-测试报告/index.html').is_file())
-
-    def test_focus_is_exact_tagged_timeline_view(self):
-        self.put('2611/01-普通标题.md', '---\ntags: [journal, 工作]\n---\n# 跨月日志')
-        self.put('2611/02-工作.md', '# 工作\n标题和正文不能代替标签')
-        self.put('2611/03-近似标签.md', '---\ntags: [异世界, 工作大数据]\n---\n# 近似标签')
-        self.put('2610/06-工作大数据/有标签.md', '---\ntags: [工作]\n---\n# 不是日志流水')
-        idx = self.m.build_index()
-        rows = idx['items']['focus']
-        self.assertEqual([x['path'] for x in rows], ['2611/01-普通标题.md', '2610/06-产品-评审.md'])
-        self.assertEqual(rows, [x for x in idx['items']['journal'] if '工作' in x['tags']])
-        self.assertEqual(len(idx['recent']), len({x['path'] for x in idx['recent']}))
-        self.m.set_archived(rows[0]['path'], True)
-        idx = self.m.build_index()
-        self.assertTrue(idx['items']['focus'][0]['archived'])
-        self.assertTrue(next(x for x in idx['items']['journal'] if x['path'] == rows[0]['path'])['archived'])
-        self.assertEqual(next(c for c in idx['categories'] if c['id'] == 'focus')['count'], 1)
 
     def test_experts_only_global_metadata_kind(self):
         experts = self.idx['experts']['experts']
@@ -107,7 +94,7 @@ class ReaderTests(unittest.TestCase):
         self.assertNotEqual(cached['version'], self.idx['version'])
         self.assertEqual(result['version'], cached['version'])
         self.assertTrue(next(x for x in cached['items']['journal'] if x['path'] == '2610/06-产品-评审.md')['archived'])
-        self.assertEqual(next(c for c in cached['categories'] if c['id'] == 'focus')['count'], 0)
+        self.assertEqual(next(c for c in cached['categories'] if c['id'] == 'journal')['count'], 2)
         self.assertNotIn('2610/06-产品-评审.md', [x['path'] for x in cached['recent']])
         self.assertEqual(cached['version'], self.m.build_index()['version'])
 
@@ -142,7 +129,7 @@ class ReaderTests(unittest.TestCase):
     def test_search_only_indexed_entries(self):
         self.assertEqual(self.m.search('artifact-search-token'), [])
         self.assertEqual(self.m.search('book-fulltext-token')[0]['cat'], 'shelf')
-        self.assertEqual(self.m.search('会议结论')[0]['cat'], 'focus')
+        self.assertEqual(self.m.search('会议结论')[0]['cat'], 'journal')
         self.assertEqual(len(self.m.search('会议结论')), 1)
         self.assertEqual(self.m.search('source evidence'), [])
 
@@ -198,7 +185,7 @@ class ReaderTests(unittest.TestCase):
         self.assertIn('2610/06-产品-评审.md', favorites, 'paired HTML is saved on the Markdown log')
         self.assertNotIn('2610/06-产品-评审.html', favorites)
         rows = {r['path']: r for r in self.m.build_index()['favorites']}
-        self.assertEqual(rows['2610/06-产品-评审.md']['cat'], 'focus')
+        self.assertEqual(rows['2610/06-产品-评审.md']['cat'], 'journal')
         self.assertEqual(rows['identity/组织-甲.md']['cat'], 'people')
         self.assertEqual(rows['2610/06-书架/卡片/书.md']['cat'], 'shelf')
         self.assertEqual(rows[skill]['cat'], 'experts')
@@ -295,6 +282,75 @@ class ReaderTests(unittest.TestCase):
             request = Request(base + '/api/favorite', data=json.dumps({'path': '2610/06-产品-评审.md'}).encode(), headers={'Content-Type': 'application/json', 'Origin': base})
             with urlopen(request) as r:
                 self.assertEqual(json.load(r)['favorites'][0]['path'], '2610/06-产品-评审.md')
+            self.assertEqual(before, self.snapshot())
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+
+    def test_init_creates_starter_only_in_empty_dir(self):
+        target = Path(self.temp.name) / 'new-journal'
+        created = self.m.init_journal(target, today=date(2026, 10, 7))
+        self.assertIn('AGENTS.md', created)
+        self.assertIn('identity/README.md', created)
+        self.assertIn('2610/07-开始使用谨迹.md', created)
+        welcome = (target / '2610/07-开始使用谨迹.md').read_text(encoding='utf-8')
+        self.assertIn('2026-10-07', welcome)
+        self.assertNotIn('{{', welcome)
+        with self.assertRaises(self.m.SetupError):
+            self.m.init_journal(target)
+        busy = Path(self.temp.name) / 'busy'
+        busy.mkdir()
+        (busy / 'note.md').write_text('mine', encoding='utf-8')
+        with self.assertRaises(self.m.SetupError):
+            self.m.init_journal(busy)
+        self.assertEqual([x.name for x in busy.iterdir()], ['note.md'])
+        self.assertEqual((busy / 'note.md').read_text(encoding='utf-8'), 'mine')
+
+    def test_starter_journal_is_indexed(self):
+        target = Path(self.temp.name) / 'fresh'
+        self.m.init_journal(target, today=date(2026, 10, 7))
+        self.m.JOURNAL = target.resolve()
+        self.m._roots_cache['at'] = -1e9
+        idx = self.m.build_index()
+        self.assertEqual(idx['setup'], {'exists': True, 'initialized': True})
+        self.assertEqual([x['path'] for x in idx['items']['journal']], ['2610/07-开始使用谨迹.md'])
+        self.assertEqual([x['path'] for x in idx['items']['people']], ['identity/README.md'])
+
+    def test_setup_rejects_unsafe_paths_and_locked_switch(self):
+        for bad in ('relative/dir', '/', '~', str(self.m.HERE), str(self.m.HERE.parent)):
+            with self.assertRaises(self.m.SetupError, msg=bad):
+                self.m.normalize_journal(bad)
+        self.assertTrue(self.m.JOURNAL_LOCKED)
+        with self.assertRaises(self.m.SetupError):
+            self.m.apply_setup(str(Path(self.temp.name) / 'other'), init=True)
+        self.assertFalse((Path(self.temp.name) / 'other').exists())
+
+    def test_http_setup_saves_config_without_touching_journal(self):
+        server = self.m.ThreadingHTTPServer(('127.0.0.1', 0), self.m.Handler)
+        self.m.PORT = server.server_port
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f'http://127.0.0.1:{server.server_port}'
+        before = self.snapshot()
+        target = (Path(self.temp.name) / 'switched').resolve()
+        body = json.dumps({'journal': str(target), 'init': True}).encode()
+        try:
+            with self.assertRaises(HTTPError) as error:
+                urlopen(Request(base + '/api/setup', data=body, headers={'Content-Type': 'application/json', 'Origin': 'http://evil.invalid'}))
+            self.assertEqual(error.exception.code, 403)
+            with urlopen(base + '/api/setup?path=' + quote(str(target))) as r:
+                self.assertEqual(json.load(r) | {'locked': None, 'config_file': None, 'current': None}, {'journal': str(target), 'current': None, 'locked': None, 'config_file': None, 'exists': False, 'empty': True, 'initialized': False})
+            with patch.object(self.m, 'JOURNAL_LOCKED', False), patch.dict(os.environ, {'JINJI_NO_RESTART': '1'}):
+                with urlopen(Request(base + '/api/setup', data=body, headers={'Content-Type': 'application/json', 'Origin': base})) as r:
+                    result = json.load(r)
+            self.assertTrue(result['restart'])
+            self.assertIn('AGENTS.md', result['created'])
+            self.assertEqual(self.m.config_target(), Path(self.temp.name) / 'config.json')
+            saved = json.loads(self.m.config_target().read_text(encoding='utf-8'))
+            self.assertEqual(saved['journal'], str(target))
+            self.assertEqual([c['id'] for c in saved['categories']], [c['id'] for c in self.m.CONFIG['categories']])
             self.assertEqual(before, self.snapshot())
         finally:
             server.shutdown()

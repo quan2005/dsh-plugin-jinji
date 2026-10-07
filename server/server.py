@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """谨迹书房：journal 的只读 LLM Wiki 阅读器。
 
-只用标准库。只读文件，写入只有四处：内存里的「引用队列」（由 DSH 插件
+只用标准库。只读文件，写入只有这几处：内存里的「引用队列」（由 DSH 插件
 取走并填进会话输入框）；用户在专家智库点「标为专家」时，
-给对应 SKILL.md 的 frontmatter 加一行 metadata.kind: 专家，「改名」时改 metadata.name 一行；用户点「归档」时写归档记录
+给对应 SKILL.md 的 frontmatter 加一行 metadata.kind: 专家，「改名」时改 metadata.name 一行；配置页保存 journal 位置时
+写本地配置，并可在空目录里生成起步骨架（starter/journal，不覆盖任何文件）；用户点「归档」时写归档记录
 （默认 ~/.local/share/jinji-reader/<journal-id>/archive.json，不改原文件）；用户点「收藏」时写收藏记录
 （同目录 favorites.json，不改原文件）。
 
@@ -650,6 +651,118 @@ _index_lock = threading.Lock()
 _index: dict = {"at": 0.0, "data": None}
 
 
+# ---------------------------------------------------------------- setup
+# 配置页：选 journal 位置写进本地配置（库外），并可在空目录里生成起步骨架。
+# 这是唯一会往 journal 写的地方：只在目录不存在或为空时创建，逐个文件独占创建，不覆盖。
+
+STARTER = HERE.parent / "starter" / "journal"
+JOURNAL_LOCKED = bool(os.environ.get("JINJI_JOURNAL"))  # DSH 插件配置或环境变量指定了 journal
+INIT_IGNORE = {".DS_Store", ".git"}
+
+
+class SetupError(Exception):
+    pass
+
+
+def config_target() -> Path:
+    # 以启动时实际读到的配置文件为准；读的是示例时另存为本地配置，示例本身不改。
+    return HERE / "wiki.config.json" if CONFIG_FILE.name == "wiki.config.example.json" else CONFIG_FILE
+
+
+def dir_empty(p: Path) -> bool:
+    return not any(c.name not in INIT_IGNORE for c in p.iterdir())
+
+
+def setup_state(p: Path | None = None) -> dict:
+    p = p or JOURNAL
+    exists = p.is_dir()
+    return {"journal": str(p), "current": str(JOURNAL), "locked": JOURNAL_LOCKED, "config_file": str(config_target()),
+            "exists": exists, "empty": not exists or dir_empty(p), "initialized": (p / "AGENTS.md").is_file()}
+
+
+def normalize_journal(raw) -> Path:
+    s = str(raw or "").strip()
+    if not s.startswith(("/", "~")):
+        raise SetupError("请填写绝对路径，或以 ~ 开头的路径")
+    p = Path(os.path.expanduser(s)).resolve()
+    repo = HERE.parent
+    if p in (Path("/"), Path.home().resolve()) or len(p.parts) < 3:
+        raise SetupError("不能用根目录或主目录本身，请选一个专门的子目录")
+    if p == repo or repo in p.parents or p in repo.parents:
+        raise SetupError("journal 不能放在书房程序目录里，也不能包含它")
+    if p == STATE_ROOT or STATE_ROOT in p.parents:
+        raise SetupError("journal 不能放在书房的状态目录里")
+    if p.exists() and not p.is_dir():
+        raise SetupError("这个路径是文件，不是目录")
+    return p
+
+
+def init_journal(p: Path, today: date | None = None) -> list[str]:
+    """把 starter 骨架复制进空目录。文件名和内容里的 {{yyMM}}、{{DD}}、{{date}} 换成当天日期。"""
+    if p.exists() and not dir_empty(p):
+        raise SetupError("目录不是空的；初始化只在空目录里进行，已有内容不会被改动")
+    if not STARTER.is_dir():
+        raise SetupError("找不到起步骨架 starter/journal")
+    d = today or date.today()
+    subs = {"{{yyMM}}": d.strftime("%y%m"), "{{DD}}": d.strftime("%d"), "{{date}}": d.isoformat()}
+
+    def fill(s: str) -> str:
+        for k, v in subs.items():
+            s = s.replace(k, v)
+        return s
+
+    created = []
+    for src in sorted(STARTER.rglob("*")):
+        if not src.is_file() or src.name in INIT_IGNORE:
+            continue
+        rel = fill(str(src.relative_to(STARTER)))
+        dst = p / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        data = src.read_bytes()
+        if src.suffix in (".md", ".txt"):
+            data = fill(data.decode("utf-8")).encode("utf-8")
+        with open(dst, "xb") as f:  # 独占创建：并发或残留文件都不会被覆盖
+            f.write(data)
+        dst.chmod(src.stat().st_mode & 0o777)
+        created.append(rel)
+    return created
+
+
+def save_journal_config(p: Path) -> Path:
+    """把 journal 写进本地配置；其余字段沿用当前配置。原子替换，不留半截文件。"""
+    target = config_target()
+    data = dict(CONFIG)
+    home = str(Path.home())
+    data["journal"] = "~" + str(p)[len(home):] if str(p).startswith(home + os.sep) else str(p)
+    tmp = target.with_name(target.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    os.replace(tmp, target)
+    return target
+
+
+def restart_later(delay: float = 0.4) -> None:
+    """换 journal 后原地重启：同一 PID 重新执行，DSH 持有的子进程句柄不变。"""
+    if os.environ.get("JINJI_NO_RESTART"):
+        return
+    threading.Timer(delay, lambda: os.execv(sys.executable, [sys.executable, *sys.argv])).start()
+
+
+def apply_setup(raw_journal, init: bool) -> dict:
+    p = normalize_journal(raw_journal)
+    switch = p != JOURNAL
+    if switch and JOURNAL_LOCKED:
+        raise SetupError("journal 位置由 DSH 插件配置（JINJI_JOURNAL）指定，请在 profile 的 cordis.patch.yml 里修改")
+    created = init_journal(p) if init else []
+    if switch:
+        if not p.is_dir():
+            raise SetupError("目录不存在；勾选「初始化」可以新建，或先手动创建")
+        save_journal_config(p)
+        restart_later()
+    else:
+        get_index(force=True)
+    return {"journal": str(p), "created": created, "restart": switch}
+
+
 # ---------------------------------------------------------------- archive
 # 归档状态存于阅读器数据目录，不写 journal；HTML 也没有 frontmatter。
 # {路径: true/false}，
@@ -835,8 +948,7 @@ def build_index() -> dict:
         if kind == "portrait":
             lst = build_portraits(cat)
         elif kind == "timeline":
-            required_tags = set(cat.get("tags", []))
-            lst = [x for x in timeline if required_tags <= set(x["tags"])]
+            lst = timeline
         elif kind == "shelf":
             lst = books
         elif kind == "experts":
@@ -846,9 +958,10 @@ def build_index() -> dict:
         if kind in ARCHIVABLE_KINDS:
             lst = [slim(x) for x in lst]
         items[cat["id"]] = lst
-        cats.append({k: cat.get(k) for k in ("id", "name", "glyph", "kind", "tagline", "tags", "featured") if k not in ("tags", "featured") or cat.get(k)})
+        cats.append({k: cat.get(k) for k in ("id", "name", "glyph", "kind", "tagline")})
     return finish_index({
         "journal": str(JOURNAL),
+        "setup": {"exists": JOURNAL.is_dir(), "initialized": (JOURNAL / "AGENTS.md").is_file()},
         "schema": "journal-monthly-v2",
         "categories": cats,
         "items": items,
@@ -1024,6 +1137,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"mtime": p.stat().st_mtime, "bridge": bridge_alive()})
         if path == "/api/search":
             return self.send_json({"results": search(qs.get("q", ""))})
+        if path == "/api/setup":
+            try:
+                target = normalize_journal(qs["path"]) if qs.get("path") else None
+            except SetupError as e:
+                return self.send_json({"error": str(e)}, 400)
+            return self.send_json(setup_state(target))
         if path == "/api/cite/pull":
             _bridge["last_poll"] = time.time()
             with _cite_lock:
@@ -1042,6 +1161,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.api_archive()
         if u.path == "/api/favorite":
             return self.api_favorite()
+        if u.path == "/api/setup":
+            return self.api_setup()
         if u.path != "/api/cite":
             return self.send_json({"error": "not found"}, 404)
         # 只接受本页面发起的请求
@@ -1104,6 +1225,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             return self.send_json({"ok": True} | set_favorite(str(body.get("path") or ""), body.get("favorite") is not False))
         except MarkError as e:
+            return self.send_json({"error": str(e)}, 409)
+        except OSError as e:
+            return self.send_json({"error": f"写入失败：{e}"}, 500)
+
+    def api_setup(self):
+        body = self.read_page_json()
+        if body is None:
+            return
+        try:
+            return self.send_json({"ok": True} | apply_setup(body.get("journal"), body.get("init") is True))
+        except (SetupError, FileExistsError) as e:
             return self.send_json({"error": str(e)}, 409)
         except OSError as e:
             return self.send_json({"error": f"写入失败：{e}"}, 500)
