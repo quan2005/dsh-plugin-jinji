@@ -1,0 +1,12 @@
+# 谨迹书房 DSH 插件的组合层：安装到 profile 后挂载 Host 半边；
+# Client 半边由 package.json 的 dsh.client 声明自动发现。
+# 可在 profile 的 cordis.patch.yml 里按 id 覆盖 config：
+#   - id: jinji-shufang
+#     config:
+#       port: 4417
+#       python: /usr/bin/python3
+#       journal: ~/Documents/journal
+#       autoStart: true
+- insert:
+    - id: jinji-shufang
+      name: dsh-plugin-jinji-reader

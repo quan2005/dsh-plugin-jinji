@@ -1,0 +1,4 @@
+__pycache__/
+.DS_Store
+# 本地配置：从 server/wiki.config.example.json 复制后按需修改
+server/wiki.config.json

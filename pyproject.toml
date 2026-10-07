@@ -1,0 +1,20 @@
+[project]
+name = "jinji-reader"
+version = "0.1.0"
+description = "谨迹书房：DeepSeek Harness 中的 journal 只读阅读器服务"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = []  # 服务只用标准库
+
+[project.urls]
+Repository = "https://github.com/quan2005/dsh-plugin-jinji"
+Issues = "https://github.com/quan2005/dsh-plugin-jinji/issues"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 160
+extend-exclude = ["server/static/vendor"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B", "UP"]

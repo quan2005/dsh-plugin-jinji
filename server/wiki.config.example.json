@@ -1,0 +1,65 @@
+{
+  "journal": "~/Documents/journal",
+  "port": 4417,
+  "skill_roots": [
+    "~/.agents/skills"
+  ],
+  "extra_roots": [],
+  "categories": [
+    {
+      "id": "focus",
+      "name": "工作专题",
+      "glyph": "专",
+      "kind": "timeline",
+      "tagline": "日志流水 · tags 包含「工作」",
+      "tags": [
+        "工作"
+      ],
+      "featured": true
+    },
+    {
+      "id": "people",
+      "name": "人物画像",
+      "glyph": "人",
+      "kind": "portrait",
+      "tagline": "关系、角色与历史记录",
+      "include": [
+        "identity/*.md"
+      ],
+      "type": "person"
+    },
+    {
+      "id": "products",
+      "name": "产品画像",
+      "glyph": "品",
+      "kind": "portrait",
+      "tagline": "定位、能力与演进",
+      "include": [
+        "identity/*.md"
+      ],
+      "type": "product"
+    },
+    {
+      "id": "shelf",
+      "name": "阅读书架",
+      "glyph": "书",
+      "kind": "shelf",
+      "tagline": "按 type: book 汇总，一书一卡",
+      "type": "book"
+    },
+    {
+      "id": "journal",
+      "name": "日志流水",
+      "glyph": "日",
+      "kind": "timeline",
+      "tagline": "按记录日期排列，只读不改"
+    },
+    {
+      "id": "experts",
+      "name": "专家智库",
+      "glyph": "智",
+      "kind": "experts",
+      "tagline": "全局技能 · metadata.kind 为专家"
+    }
+  ]
+}

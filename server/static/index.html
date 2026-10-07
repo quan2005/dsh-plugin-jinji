@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>谨迹书房</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='6' y='6' width='52' height='52' rx='10' fill='%23b03a28' transform='rotate(-4 32 32)'/%3E%3Ctext x='32' y='44' font-size='34' text-anchor='middle' fill='%23f4f0e6' font-family='Songti SC,serif' font-weight='700'%3E谨%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/app.css">
+<script>
+// 主题：DSH 内嵌时由宿主经 URL 参数 theme 传入（并随宿主实时切换）；独立打开时用本机选择，没有选择就跟随系统。
+try {
+  const q = new URLSearchParams(location.search).get('theme')
+  // 本机选择由 app.js 的 store 以 JSON 保存（"dark"）；兼容未加引号的旧写法。
+  let saved = localStorage.getItem('jinji.theme')
+  try { saved = JSON.parse(saved) } catch (e) {}
+  const t = q === 'dark' || q === 'light' ? q : saved
+  if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t
+  if (q) document.documentElement.dataset.themeHost = '1'
+} catch (e) {}
+</script>
+<script src="/static/vendor/marked-12.0.2.min.js" defer></script>
+<script src="/static/vendor/purify-3.1.6.min.js" defer></script>
+</head>
+<body>
+<div id="app" class="app" data-view="home">
+  <nav class="rail" id="rail" aria-label="分类"></nav>
+  <aside class="side" id="side" aria-label="列表"></aside>
+  <main class="main" id="main"><div class="loading">正在打开书房…</div></main>
+</div>
+<div class="palette" id="palette" hidden>
+  <div class="pal-box" role="dialog" aria-label="搜索">
+    <input id="pal-input" placeholder="搜标题、路径或全文…" autocomplete="off" spellcheck="false">
+    <div class="pal-list" id="pal-list"></div>
+    <div class="pal-foot"><span>↑↓ 选择</span><span>↵ 打开</span><span>⌘↵ 引用到会话</span><span>esc 关闭</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="/static/app.js" defer></script>
+</body>
+</html>
