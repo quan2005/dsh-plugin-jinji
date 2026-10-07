@@ -312,7 +312,7 @@ async function toggleArchive(btn) {
     toast('归档失败，已恢复：' + esc(err.message), 4200)
   }
 }
-/* 收藏：任何能在书房打开的文件都可收藏，记在库外 favorites.json，不改原文件；首页「我的收藏」列出。
+/* 收藏：任何能在书房打开的文件都可收藏，记在库外 favorites.json，不改原文件；首页对应入口卡片列出。
    与归档一样先本地更新再写服务端，失败回滚。 */
 const favKey = path => archItem(path)?.path || path // 同名 HTML 视图收藏到 Markdown 日志。
 const isFav = path => !!path && (S.idx?.favorites || []).some(f => f.path === favKey(path))
@@ -320,7 +320,7 @@ function favBtn(path, cls = 'sm') {
   if (!path) return ''
   const on = isFav(path)
   const label = cls.includes('icon') ? '' : on ? '已收藏' : '收藏'
-  return `<button class="btn fav ${cls} ${on ? 'on' : ''}" data-act="favorite" data-path="${esc(path)}" aria-pressed="${on}" title="${on ? '取消收藏' : '收藏：显示在首页「我的收藏」'}（s）">${on ? ICON.starOn : ICON.star}${label}</button>`
+  return `<button class="btn fav ${cls} ${on ? 'on' : ''}" data-act="favorite" data-path="${esc(path)}" aria-pressed="${on}" title="${on ? '取消收藏' : '收藏：显示在首页入口卡片'}（s）">${on ? ICON.starOn : ICON.star}${label}</button>`
 }
 function favTitle(path) {
   const key = favKey(path)
@@ -354,7 +354,7 @@ async function toggleFavorite(btn) {
   const { cat, title } = favTitle(path)
   S.idx.favorites = to ? [{ path, title, cat, at: Date.now() / 1000 }, ...before.filter(f => f.path !== path)] : before.filter(f => f.path !== path)
   repaintFavorites()
-  toast(to ? `已收藏 <code>${esc(title)}</code>，可在首页「我的收藏」找到` : `已取消收藏 <code>${esc(title)}</code>`)
+  toast(to ? `已收藏 <code>${esc(title)}</code>，可在首页入口卡片找到` : `已取消收藏 <code>${esc(title)}</code>`)
   try {
     const r = await fetch('/api/favorite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, favorite: to }) })
     const j = await r.json()
@@ -636,11 +636,6 @@ function renderHome(main) {
   const d = new Date()
   const week = '日一二三四五六'[d.getDay()]
   const hist = store.get('history:v2', []).slice(0, 8)
-  const latest = cid => {
-    if (cid === 'experts') return idx.experts.experts.slice(0, 3).map(e => e.name)
-    const lst = (idx.items[cid] || []).filter(x => !x.archived).sort((a, b) => b.mtime - a.mtime)
-    return lst.slice(0, 3).map(x => x.display || x.title)
-  }
   main.innerHTML = `<div class="view scroll" id="scroller"><div class="pad wide">
     <header class="home-head">
       <div><h1><span class="seal">谨</span>谨迹书房</h1>
@@ -648,12 +643,11 @@ function renderHome(main) {
       <div class="search-trigger" data-act="search">${ICON.search.replace('<svg', '<svg width="18" height="18"')}<span>搜索全部入口的标题与全文</span><kbd>/</kbd></div>
     </header>
     ${setupHint(idx)}
-    ${favoritesPanel(idx)}
     <div class="tiles">
       ${idx.categories.map((c, i) => `<a class="tile" href="#/c/${c.id}" style="${catVar(c.id)}" data-glyph="${esc(c.glyph)}">
         <div class="tile-top"><span class="seal">${esc(c.glyph)}</span><h3>${esc(c.name)}</h3><span class="num">${c.count}</span></div>
         <div class="tagline">${esc(c.tagline || '')} · 按 ${i + 1}</div>
-        <ul>${latest(c.id).map(t => `<li>${esc(t)}</li>`).join('') || '<li>还没有条目</li>'}</ul>
+        ${tileFavs(idx, c.id)}
       </a>`).join('')}
     </div>
     <div class="home-cols">
@@ -745,17 +739,13 @@ async function waitForJournal(journal) {
   }
   throw new Error('服务没有在 10 秒内切换到新目录')
 }
-function favoritesPanel(idx) {
-  const favs = idx.favorites || []
-  const rows = favs.map(f => {
-    const c = catById(f.cat)
-    return `<div class="fav-row ${f.missing ? 'missing' : ''}" style="${catVar(f.cat)}">
-      <${f.missing ? 'span' : `a href="${favHref(f)}"`} class="fav-link" title="${esc(f.path)}"><span class="seal">${esc(c?.glyph || '·')}</span>
-        <span class="fav-tx"><span class="ft">${esc(f.title)}</span><span class="fm">${f.missing ? '文件已不存在，可取消收藏' : esc(c?.name || f.path.split('/').slice(-2, -1)[0] || '文件')} · ${timeAgo(f.at)}收藏</span></span></${f.missing ? 'span' : 'a'}>
-      <span class="fav-act">${f.missing ? '' : citeBtn(f.path, '引用', 'sm')}${favBtn(f.path, 'sm icon')}</span></div>`
-  }).join('')
-  return `<section class="panel favs"><h2>${ICON.starOn}我的收藏 <small>${favs.length ? favs.length + ' 项 · 最近收藏在前' : '本机记录，不改原文件'}</small></h2>
-    ${favs.length ? `<div class="fav-grid">${rows}</div>` : '<p class="muted fav-empty">在日志、画像、书卡、专家或技能页点「收藏」（快捷键 s），条目会出现在这里。</p>'}</section>`
+/* 入口卡片列出本入口的收藏（最近收藏在前）；条目在卡片链接内，用 onclick 跳转避免嵌套 <a>。 */
+function tileFavs(idx, cid) {
+  const favs = (idx.favorites || []).filter(f => f.cat === cid)
+  if (!favs.length) return '<ul><li class="muted">还没有收藏</li></ul>'
+  return `<ul>${favs.slice(0, 3).map(f => f.missing
+    ? `<li class="missing" title="文件已不存在">${esc(f.title)}</li>`
+    : `<li class="fav-li" title="${esc(f.title)}" onclick="event.preventDefault();event.stopPropagation();location.hash='${favHref(f).replace(/'/g, "\\'")}'">${esc(f.title)}</li>`).join('')}${favs.length > 3 ? `<li class="more">另 ${favs.length - 3} 项收藏</li>` : ''}</ul>`
 }
 function pushHistory(r) {
   const h = store.get('history:v2', []).filter(x => x.path !== r.path)
@@ -871,7 +861,7 @@ function ovTimeline(cat) {
   const arch = all.filter(x => x.archived)
   const months = new Map()
   for (const x of items) { if (!months.has(x.month)) months.set(x.month, []); months.get(x.month).push(x) }
-  const ms = [...months.keys()].sort()
+  const ms = [...months.keys()].sort().reverse()
   const max = Math.max(1, ...[...months.values()].map(v => v.length))
   const kinds = new Set(items.map(x => x.kind).filter(Boolean))
   return ovHead(cat, [[items.length, '条记录'], [months.size, '个月'], [kinds.size, '种类型']]) + `

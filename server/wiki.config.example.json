@@ -11,7 +11,7 @@
       "name": "人物画像",
       "glyph": "人",
       "kind": "portrait",
-      "tagline": "关系、角色与历史记录",
+      "tagline": "identity/ 下 type: person 的档案：关系、角色与历史记录",
       "include": [
         "identity/*.md"
       ],
@@ -22,7 +22,7 @@
       "name": "产品画像",
       "glyph": "品",
       "kind": "portrait",
-      "tagline": "定位、能力与演进",
+      "tagline": "identity/ 下 type: product 的档案：定位、能力与演进",
       "include": [
         "identity/*.md"
       ],
@@ -33,7 +33,7 @@
       "name": "阅读书架",
       "glyph": "书",
       "kind": "shelf",
-      "tagline": "按 type: book 汇总，一书一卡",
+      "tagline": "type: book 的书卡，一书一卡：导读在前，全文可读",
       "type": "book"
     },
     {
@@ -41,14 +41,14 @@
       "name": "日志流水",
       "glyph": "日",
       "kind": "timeline",
-      "tagline": "按记录日期排列，只读不改"
+      "tagline": "yyMM/DD-标题.md 的日志，按记录日期倒序，只读不改"
     },
     {
       "id": "experts",
       "name": "专家智库",
       "glyph": "智",
       "kind": "experts",
-      "tagline": "全局技能 · metadata.kind 为专家"
+      "tagline": "~/.agents/skills 中标 metadata.kind: 专家 的全局技能，按问题调用"
     }
   ]
 }

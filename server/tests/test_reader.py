@@ -54,7 +54,7 @@ class ReaderTests(unittest.TestCase):
 
     def test_five_categories_without_artifact_or_special_directory_index(self):
         self.assertEqual([c['id'] for c in self.idx['categories']], ['people', 'products', 'shelf', 'journal', 'experts'])
-        self.assertEqual(self.idx['categories'][3], {'id': 'journal', 'name': '日志流水', 'glyph': '日', 'kind': 'timeline', 'tagline': '按记录日期排列，只读不改', 'count': 3, 'archived': 0})
+        self.assertEqual(self.idx['categories'][3], {'id': 'journal', 'name': '日志流水', 'glyph': '日', 'kind': 'timeline', 'tagline': 'yyMM/DD-标题.md 的日志，按记录日期倒序，只读不改', 'count': 3, 'archived': 0})
         self.assertNotIn('artifacts', self.idx['items'])
         self.assertEqual(self.idx['items']['experts'], [])
         paths = [x['path'] for rows in self.idx['items'].values() for x in rows]

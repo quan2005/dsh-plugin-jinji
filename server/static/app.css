@@ -146,6 +146,9 @@ a { color: inherit; }
 .tile .tagline { color: var(--ink-3); font-size: .8rem; margin-bottom: .55rem; }
 .tile ul { list-style: none; margin: auto 0 0; padding: .6rem 0 0; border-top: 1px dashed var(--line); }
 .tile li { font-size: .82rem; color: var(--ink-2); padding: .16rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile li.fav-li:hover { color: var(--cat); }
+.tile li.missing { color: var(--ink-3); text-decoration: line-through; }
+.tile li.more, .tile li.muted { color: var(--ink-3); }
 .tile li::before { content: "·"; color: var(--cat); margin-right: .45rem; font-weight: 700; }
 .home-cols { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 1.6rem; margin-top: 2.4rem; }
 @container main (max-width: 60rem) { .home-cols { grid-template-columns: 1fr; } }
@@ -545,19 +548,3 @@ details.fold[open] > summary::before { transform: rotate(90deg); }
 .row .fav-mark svg { width: .78rem; height: .78rem; }
 .row.faved .fav-mark { display: inline; }
 
-/* 首页：我的收藏 */
-.panel.favs { margin-bottom: 1.8rem; }
-.panel.favs h2 svg { width: 1rem; height: 1rem; color: #c08a12; align-self: center; }
-.fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(19rem, 100%), 1fr)); gap: .1rem 1.4rem; }
-.fav-row { display: flex; align-items: center; gap: .5rem; border-bottom: 1px solid var(--line); min-width: 0; }
-.fav-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: .75rem; padding: .5rem .3rem; text-decoration: none; }
-.fav-link .seal { width: 1.5rem; height: 1.5rem; font-size: .78rem; color: var(--cat, var(--ink-3)); }
-.fav-tx { min-width: 0; display: flex; flex-direction: column; }
-.fav-tx .ft { font-size: .88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fav-tx .fm { font-size: .7rem; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-a.fav-link:hover .ft { color: var(--cat, var(--seal)); }
-.fav-row.missing .ft { color: var(--ink-3); text-decoration: line-through; }
-.fav-act { display: flex; gap: .3rem; flex: none; }
-.fav-act .btn.cite { opacity: 0; }
-.fav-row:hover .fav-act .btn.cite, .fav-act .btn:focus-visible { opacity: 1; }
-.fav-empty { font-size: .85rem; margin: .2rem 0 .1rem; }

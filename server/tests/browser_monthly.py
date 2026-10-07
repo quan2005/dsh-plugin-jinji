@@ -264,7 +264,7 @@ metadata:
             assert not (module.JOURNAL / '_系统').exists()
             print('PASS: archive UI persists outside journal')
 
-            # 收藏：详情页按钮、快捷键 s、首页「我的收藏」、取消与失败回滚；记录写在 journal 之外。
+            # 收藏：详情页按钮、快捷键 s、首页入口卡片、取消与失败回滚；记录写在 journal 之外。
             page.locator('.doc-head [data-act=favorite]').click()
             page.locator('#toast').filter(has_text='已收藏').wait_for()
             assert page.locator('.doc-head [data-act=favorite]').get_attribute('aria-pressed') == 'true'
@@ -279,29 +279,30 @@ metadata:
             assert page.locator('.expert.card .fav.on').count() == 1
             assert page.locator('#side-list .row.faved').count() == 1
             page.goto(base + '/#/')
-            page.locator('.favs .fav-row').first.wait_for()
-            assert page.locator('.favs .fav-row').count() == 2
-            assert page.locator('.favs .fav-row').first.inner_text().startswith('场') or '场景专家' in page.locator('.favs .fav-row').first.inner_text()
-            page.locator('.favs .fav-row').filter(has_text='产品-评审').locator('.fav-link').click()
+            ex_favs = page.locator('.tile[href="#/c/experts"] li.fav-li')
+            jn_favs = page.locator('.tile[href="#/c/journal"] li.fav-li')
+            ex_favs.first.wait_for()
+            assert page.locator('.favs').count() == 0
+            assert ex_favs.count() == 1 and '场景专家' in ex_favs.first.inner_text()
+            assert jn_favs.count() == 1
+            jn_favs.first.click()
             page.locator('.doc-title').wait_for()
             assert '#/c/journal/doc/' in page.url
-            page.goto(base + '/#/')
-            page.locator('.favs .fav-row').first.wait_for()
+            page.goto(base + '/#/c/experts/e/scenario-expert')
+            page.locator('.ex-lead').wait_for()
             page.route('**/api/favorite', lambda route: route.fulfill(status=500, content_type='application/json', body='{"error":"磁盘只读"}'))
-            page.locator('.favs .fav-row').filter(has_text='场景专家').locator('[data-act=favorite]').click()
+            page.keyboard.press('s')
             page.locator('#toast').filter(has_text='已恢复').wait_for()
-            assert page.locator('.favs .fav-row').count() == 2
             page.unroute('**/api/favorite')
-            page.locator('.favs .fav-row').filter(has_text='场景专家').locator('[data-act=favorite]').click()
+            page.keyboard.press('s')
             page.locator('#toast').filter(has_text='已取消收藏').wait_for()
-            assert page.locator('.favs .fav-row').count() == 1
             page.wait_for_timeout(300)
             assert str(scenario_skill) not in module.load_favorites()
-            page.reload()
-            page.locator('.favs .fav-row').first.wait_for()
-            assert page.locator('.favs .fav-row').count() == 1
+            page.goto(base + '/#/')
+            jn_favs.first.wait_for()
+            assert ex_favs.count() == 0 and jn_favs.count() == 1
             assert not (module.JOURNAL / '_系统').exists()
-            print('PASS: favorites from detail pages and shortcut show on Home, open, roll back and persist outside journal')
+            print('PASS: favorites from detail pages and shortcut show on Home tiles, open, roll back and persist outside journal')
             page.goto(base + '/#/c/journal/doc/' + quote(pid, safe=''))
             page.locator('.doc-title').wait_for()
 
